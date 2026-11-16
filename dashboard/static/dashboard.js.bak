@@ -1,0 +1,707 @@
+/**
+ * EdgeSentinel Live Monitoring Dashboard
+ * Frontend Telemetry, Navigation, Event Polling & Browser Notifications
+ */
+
+document.addEventListener("DOMContentLoaded", () => {
+    // -------------------------------------------------------------------------
+    // 1. Clock in Topbar
+    // -------------------------------------------------------------------------
+    function updateClock() {
+        const now = new Date();
+        const timeStr = now.toTimeString().split(" ")[0];
+        const clockEl = document.getElementById("clock");
+        if (clockEl) {
+            clockEl.textContent = timeStr;
+        }
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // -------------------------------------------------------------------------
+    // 2. DOM Elements
+    // -------------------------------------------------------------------------
+    const mainContent = document.getElementById("mainContent");
+    const viewEyebrow = document.getElementById("viewEyebrow");
+    const viewTitle = document.getElementById("viewTitle");
+    const viewSubtitle = document.getElementById("viewSubtitle");
+
+    const navItems = document.querySelectorAll(".nav-item[data-view]");
+
+    const connectionDot = document.getElementById("connectionDot");
+    const connectionText = document.getElementById("connectionText");
+    const statusBanner = document.getElementById("statusBanner");
+    const statusSymbol = document.getElementById("statusSymbol");
+    const systemStatus = document.getElementById("systemStatus");
+    const statusDescription = document.getElementById("statusDescription");
+    const featuresExceeded = document.getElementById("featuresExceeded");
+    const errorBanner = document.getElementById("errorBanner");
+    const errorMessage = document.getElementById("errorMessage");
+    const samplesProcessed = document.getElementById("samplesProcessed");
+    const lastUpdated = document.getElementById("lastUpdated");
+    const featureMeter = document.getElementById("featureMeter");
+    const eventList = document.getElementById("eventList");
+
+    // Notification elements
+    const notificationBtn = document.getElementById("notificationBtn");
+    const notificationIcon = document.getElementById("notificationIcon");
+    const notificationBtnText = document.getElementById("notificationBtnText");
+
+    // History statistics elements
+    const statTotalEvents = document.getElementById("statTotalEvents");
+    const statAnomalyCount = document.getElementById("statAnomalyCount");
+    const statCheckingCount = document.getElementById("statCheckingCount");
+    const statNormalCount = document.getElementById("statNormalCount");
+
+    // Analytics table body
+    const analyticsTableBody = document.getElementById("analyticsTableBody");
+
+    const sensorElements = {
+        ax: document.getElementById("ax"),
+        ay: document.getElementById("ay"),
+        az: document.getElementById("az"),
+        gx: document.getElementById("gx"),
+        gy: document.getElementById("gy"),
+        gz: document.getElementById("gz")
+    };
+
+    const FEATURE_NAMES = ["ax", "ay", "az", "gx", "gy", "gz"];
+    const FEATURE_LABELS = {
+        ax: "AX (Acc X)",
+        ay: "AY (Acc Y)",
+        az: "AZ (Acc Z)",
+        gx: "GX (Gyro X)",
+        gy: "GY (Gyro Y)",
+        gz: "GZ (Gyro Z)"
+    };
+
+    const FEATURE_DESCRIPTIONS = {
+        ax: "X-Axis Linear Acceleration (Forward/Back)",
+        ay: "Y-Axis Linear Acceleration (Lateral/Side)",
+        az: "Z-Axis Linear Acceleration (Vertical/Gravity)",
+        gx: "X-Axis Angular Velocity (Roll Rate)",
+        gy: "Y-Axis Angular Velocity (Pitch Rate)",
+        gz: "Z-Axis Angular Velocity (Yaw Rate)"
+    };
+
+    const FEATURE_UNITS = {
+        ax: "m/s²",
+        ay: "m/s²",
+        az: "m/s²",
+        gx: "°/s*",
+        gy: "°/s*",
+        gz: "°/s*"
+    };
+
+    // -------------------------------------------------------------------------
+    // 3. Sidebar Navigation Views
+    // -------------------------------------------------------------------------
+    const VIEW_CONFIGS = {
+        overview: {
+            eyebrow: "EDGE MONITORING / OVERVIEW",
+            title: "Live Monitoring",
+            subtitle: "Real-time equipment movement monitoring"
+        },
+        analytics: {
+            eyebrow: "EDGE MONITORING / SENSOR ANALYTICS",
+            title: "Sensor Analytics",
+            subtitle: "Detailed sensor telemetry & feature variability analysis"
+        },
+        history: {
+            eyebrow: "EDGE MONITORING / EVENT HISTORY",
+            title: "Event History",
+            subtitle: "Log of system status transitions and detected events"
+        }
+    };
+
+    let currentView = "overview";
+
+    function switchView(viewName) {
+        if (!VIEW_CONFIGS[viewName]) return;
+        currentView = viewName;
+
+        // Update active class on sidebar navigation buttons
+        navItems.forEach(item => {
+            if (item.getAttribute("data-view") === viewName) {
+                item.classList.add("active");
+            } else {
+                item.classList.remove("active");
+            }
+        });
+
+        // Set data-view attribute on mainContent container
+        if (mainContent) {
+            mainContent.setAttribute("data-view", viewName);
+        }
+
+        // Update topbar titles
+        const cfg = VIEW_CONFIGS[viewName];
+        if (viewEyebrow) viewEyebrow.textContent = cfg.eyebrow;
+        if (viewTitle) viewTitle.textContent = cfg.title;
+        if (viewSubtitle) viewSubtitle.textContent = cfg.subtitle;
+    }
+
+    // Attach click listeners to sidebar navigation items
+    navItems.forEach(item => {
+        item.addEventListener("click", () => {
+            const targetView = item.getAttribute("data-view");
+            switchView(targetView);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // 4. Browser Notifications
+    // -------------------------------------------------------------------------
+    let isInitialPoll = true;
+    let lastAnomalyKey = null;
+    let lastAnomalyStatus = null;
+
+    function updateNotificationButtonUI() {
+        if (!notificationBtn) return;
+
+        notificationBtn.classList.remove("granted", "denied", "unsupported");
+
+        if (!("Notification" in window)) {
+            notificationBtn.classList.add("unsupported");
+            notificationBtn.title = "Browser notifications are not supported in this browser";
+            notificationBtn.disabled = true;
+            if (notificationBtnText) notificationBtnText.textContent = "Alerts Unsupported";
+            if (notificationIcon) notificationIcon.textContent = "🔕";
+            return;
+        }
+
+        const perm = Notification.permission;
+        if (perm === "granted") {
+            notificationBtn.classList.add("granted");
+            notificationBtn.title = "Browser notifications active: alerting once on confirmed anomaly events";
+            if (notificationBtnText) notificationBtnText.textContent = "Alerts Enabled";
+            if (notificationIcon) notificationIcon.textContent = "🔔";
+        } else if (perm === "denied") {
+            notificationBtn.classList.add("denied");
+            notificationBtn.title = "Notifications blocked in browser settings. Please allow notifications in site settings to receive alerts.";
+            if (notificationBtnText) notificationBtnText.textContent = "Alerts Blocked";
+            if (notificationIcon) notificationIcon.textContent = "🔕";
+        } else {
+            // default
+            notificationBtn.title = "Click to enable browser notifications for anomaly alerts";
+            if (notificationBtnText) notificationBtnText.textContent = "Enable Alerts";
+            if (notificationIcon) notificationIcon.textContent = "🔔";
+        }
+    }
+
+    // Initialize notification button state on page load
+    updateNotificationButtonUI();
+
+    // User interaction: only request permission after explicit user click
+    if (notificationBtn) {
+        notificationBtn.addEventListener("click", async () => {
+            if (!("Notification" in window)) {
+                alert("Browser notifications are not supported by this browser.");
+                return;
+            }
+
+            if (Notification.permission === "granted") {
+                // Already active: provide test verification
+                try {
+                    const testNotif = new Notification("EdgeSentinel Alerts Active", {
+                        body: "Browser alerts are currently enabled. You will be notified whenever equipment movement is confirmed.",
+                        tag: "edgesentinel-active"
+                    });
+                    setTimeout(() => { try { testNotif.close(); } catch (e) {} }, 5000);
+                } catch (e) {
+                    // Mobile or strict context fallback
+                }
+                return;
+            }
+
+            if (Notification.permission === "denied") {
+                alert("Notification permission is currently blocked in your browser settings. To enable alerts, click the site security/tune icon next to the URL address bar and change Notifications to 'Allow'.");
+                return;
+            }
+
+            // Permission is "default" - request it now
+            try {
+                let perm;
+                if (window.Notification && Notification.requestPermission) {
+                    // Support Promise and callback signatures
+                    perm = await new Promise(resolve => {
+                        const res = Notification.requestPermission(resolve);
+                        if (res && typeof res.then === "function") {
+                            res.then(resolve);
+                        }
+                    });
+                }
+
+                updateNotificationButtonUI();
+
+                if (perm === "granted") {
+                    try {
+                        const welcomeNotif = new Notification("EdgeSentinel Alerts Enabled", {
+                            body: "Notifications active. You will receive alerts on confirmed anomaly events.",
+                            tag: "edgesentinel-welcome"
+                        });
+                        setTimeout(() => { try { welcomeNotif.close(); } catch (e) {} }, 5000);
+                    } catch (e) {
+                        // Handled gracefully
+                    }
+                }
+            } catch (err) {
+                console.warn("Error requesting notification permission:", err);
+                updateNotificationButtonUI();
+            }
+        });
+    }
+
+    /**
+     * Send desktop browser notification for confirmed anomaly.
+     * Safely handles mobile environments without unsupportable claims.
+     */
+    function sendAnomalyNotification(data, eventObj) {
+        if (!("Notification" in window) || Notification.permission !== "granted") {
+            return;
+        }
+
+        const exceeded = (eventObj && eventObj.features_exceeded !== undefined)
+            ? eventObj.features_exceeded
+            : (data.features_exceeded || 0);
+
+        const timeStr = (eventObj && eventObj.time) || data.timestamp || new Date().toTimeString().split(" ")[0];
+
+        const title = "⚠️ EdgeSentinel: ANOMALY CONFIRMED";
+        const body = `Unusual equipment movement detected at ${timeStr} (${exceeded}/6 features exceeded). Equipment inspection recommended.`;
+
+        const options = {
+            body: body,
+            tag: `edgesentinel-anomaly-${Date.now()}`,
+            renotify: true
+        };
+
+        try {
+            const notif = new Notification(title, options);
+            setTimeout(() => {
+                try { notif.close(); } catch (e) {}
+            }, 8000);
+            notif.onclick = () => {
+                window.focus();
+                try { notif.close(); } catch (e) {}
+            };
+        } catch (e) {
+            // Attempt fallback for mobile browsers that require ServiceWorker showNotification
+            if ("serviceWorker" in navigator && navigator.serviceWorker.ready) {
+                navigator.serviceWorker.ready.then(reg => {
+                    reg.showNotification(title, options);
+                }).catch(() => {});
+            }
+        }
+    }
+
+    /**
+     * Check if a new ANOMALY CONFIRMED event occurred.
+     * Guaranteed behavior:
+     * - Fires once per new anomaly event.
+     * - Suppresses notifications on initial page load.
+     * - Does not fire every second while the status stays abnormal.
+     * - Does not notify on normal readings or repeated polls of the same event.
+     */
+    function checkAnomalyNotification(data) {
+        const currentStatus = (data.status || "").toUpperCase();
+        const isAnomaly = currentStatus === "ANOMALY CONFIRMED";
+
+        // Find the latest ANOMALY CONFIRMED event in the event history
+        let latestAnomalyEvent = null;
+        if (Array.isArray(data.events)) {
+            latestAnomalyEvent = data.events.find(ev => (ev.status || "").toUpperCase() === "ANOMALY CONFIRMED");
+        }
+
+        // Build a unique key for the anomaly event (e.g. "12:30:15_4")
+        const currentAnomalyKey = latestAnomalyEvent
+            ? `${latestAnomalyEvent.time}_${latestAnomalyEvent.features_exceeded}`
+            : (isAnomaly ? `${data.timestamp || "active"}_${data.features_exceeded || 0}` : null);
+
+        // On initial page load, record the current baseline state without alerting
+        if (isInitialPoll) {
+            isInitialPoll = false;
+            lastAnomalyStatus = currentStatus;
+            lastAnomalyKey = currentAnomalyKey;
+            return;
+        }
+
+        // If status is currently ANOMALY CONFIRMED:
+        if (isAnomaly) {
+            // It is a newly occurred anomaly if either:
+            // 1. The status just transitioned from non-anomaly to ANOMALY CONFIRMED
+            // 2. Or the latest anomaly event key is different from the last alerted event key
+            const isNewTransition = lastAnomalyStatus !== "ANOMALY CONFIRMED";
+            const isNewKey = currentAnomalyKey && currentAnomalyKey !== lastAnomalyKey;
+
+            if (isNewTransition || isNewKey) {
+                sendAnomalyNotification(data, latestAnomalyEvent);
+                if (currentAnomalyKey) {
+                    lastAnomalyKey = currentAnomalyKey;
+                }
+            }
+        }
+
+        // Track last known status
+        lastAnomalyStatus = currentStatus;
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Update Status Banner & Visuals
+    // -------------------------------------------------------------------------
+    function updateStatusDisplay(status, connected, error, exceededCount) {
+        statusBanner.classList.remove(
+            "status-normal",
+            "status-checking",
+            "status-anomaly",
+            "status-disconnected"
+        );
+
+        if (!connected || status === "DISCONNECTED") {
+            statusBanner.classList.add("status-disconnected");
+            statusSymbol.textContent = "✕";
+            systemStatus.textContent = "DISCONNECTED";
+            statusDescription.textContent = error
+                ? error
+                : "Waiting for Arduino Uno connection on COM13...";
+
+            if (connectionDot) {
+                connectionDot.className = "connection-indicator disconnected";
+            }
+            if (connectionText) {
+                connectionText.textContent = "Disconnected";
+            }
+        } else if (status === "ANOMALY CONFIRMED") {
+            statusBanner.classList.add("status-anomaly");
+            statusSymbol.textContent = "▲";
+            systemStatus.textContent = "ANOMALY CONFIRMED";
+            statusDescription.textContent = "Unusual sensor variation detected across consecutive 100-sample windows.";
+
+            if (connectionDot) {
+                connectionDot.className = "connection-indicator connected";
+            }
+            if (connectionText) {
+                connectionText.textContent = "Connected";
+            }
+        } else if (status === "CHECKING MOVEMENT") {
+            statusBanner.classList.add("status-checking");
+            statusSymbol.textContent = "⚠";
+            systemStatus.textContent = "CHECKING MOVEMENT";
+            statusDescription.textContent = "Variation exceeded threshold on this window. Evaluating consecutive window...";
+
+            if (connectionDot) {
+                connectionDot.className = "connection-indicator connected";
+            }
+            if (connectionText) {
+                connectionText.textContent = "Connected";
+            }
+        } else {
+            // NORMAL
+            statusBanner.classList.add("status-normal");
+            statusSymbol.textContent = "✓";
+            systemStatus.textContent = "NORMAL";
+            statusDescription.textContent = "Sensor baseline variability within expected operating limits.";
+
+            if (connectionDot) {
+                connectionDot.className = "connection-indicator connected";
+            }
+            if (connectionText) {
+                connectionText.textContent = "Connected";
+            }
+        }
+
+        if (featuresExceeded) {
+            featuresExceeded.textContent = `${exceededCount !== undefined ? exceededCount : 0} / 6`;
+        }
+
+        // Connection error alert banner
+        if (error && error.trim().length > 0) {
+            errorBanner.style.display = "flex";
+            errorMessage.textContent = error;
+        } else {
+            errorBanner.style.display = "none";
+            errorMessage.textContent = "";
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 6. Update Live Sensor Readings
+    // -------------------------------------------------------------------------
+    function updateReadings(readings, connected) {
+        FEATURE_NAMES.forEach(feat => {
+            const el = sensorElements[feat];
+            if (!el) return;
+
+            if (connected && readings && readings[feat] !== undefined && readings[feat] !== null) {
+                const val = Number(readings[feat]);
+                el.textContent = isNaN(val) ? "--" : val.toFixed(4);
+            } else {
+                el.textContent = "--";
+            }
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // 7. Render Six-Feature Variability Indicator
+    // -------------------------------------------------------------------------
+    function updateFeatureMeter(thresholds, variability, featureExceeded, connected) {
+        if (!featureMeter) return;
+
+        let html = "";
+        FEATURE_NAMES.forEach(feat => {
+            const label = FEATURE_LABELS[feat] || feat.toUpperCase();
+            const threshold = thresholds && thresholds[feat] !== undefined ? thresholds[feat] : null;
+            const variance = variability && variability[feat] !== undefined ? variability[feat] : null;
+            const isExceeded = featureExceeded && featureExceeded[feat] === true;
+
+            let statusClass = "awaiting";
+            let statusText = "Awaiting";
+            let percentFill = 0;
+
+            if (connected && variance !== null && threshold !== null) {
+                if (isExceeded) {
+                    statusClass = "high";
+                    statusText = "EXCEEDED";
+                    percentFill = 100;
+                } else {
+                    statusClass = "normal";
+                    statusText = "NORMAL";
+                    percentFill = Math.min(100, Math.max(5, (variance / (threshold || 1)) * 100));
+                }
+            }
+
+            const varText = variance !== null ? variance.toFixed(4) : "--";
+            const thrText = threshold !== null ? threshold.toFixed(4) : "--";
+
+            html += `
+                <div class="meter-card ${isExceeded ? 'exceeded' : ''}">
+                    <div class="meter-top">
+                        <span class="meter-feature">${label}</span>
+                        <span class="meter-status ${statusClass}">${statusText}</span>
+                    </div>
+                    <div class="meter-bar-container">
+                        <div class="meter-bar-fill ${isExceeded ? 'exceeded' : ''}" style="width: ${percentFill}%;"></div>
+                    </div>
+                    <div class="meter-values">
+                        <span>Var: <strong>${varText}</strong></span>
+                        <span>Lim: <strong>${thrText}</strong></span>
+                    </div>
+                </div>
+            `;
+        });
+
+        featureMeter.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------------------
+    // 8. Render Events History List
+    // -------------------------------------------------------------------------
+    function updateEventList(events) {
+        if (!eventList) return;
+
+        if (!events || events.length === 0) {
+            eventList.innerHTML = `<p class="empty-state">Waiting for the first event...</p>`;
+            return;
+        }
+
+        let html = "";
+        events.forEach(ev => {
+            let statusClass = "status-normal";
+            const rawStatus = (ev.status || "").toUpperCase();
+
+            if (rawStatus.includes("ANOMALY")) {
+                statusClass = "status-anomaly-confirmed";
+            } else if (rawStatus.includes("CHECKING")) {
+                statusClass = "status-checking-movement";
+            } else if (rawStatus.includes("DISCONNECTED")) {
+                statusClass = "status-disconnected";
+            }
+
+            html += `
+                <div class="event-item">
+                    <span class="event-time">${ev.time || "--:--:--"}</span>
+                    <span class="event-status ${statusClass}">${ev.status || "UNKNOWN"}</span>
+                    <span class="event-features">${ev.features_exceeded !== undefined ? ev.features_exceeded : 0}/6 exceeded</span>
+                </div>
+            `;
+        });
+
+        eventList.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------------------
+    // 9. Update History Summary Statistics (Event History View)
+    // -------------------------------------------------------------------------
+    function updateHistoryStats(events) {
+        if (!events) return;
+
+        const total = events.length;
+        let anomalyCount = 0;
+        let checkingCount = 0;
+        let normalCount = 0;
+
+        events.forEach(ev => {
+            const st = (ev.status || "").toUpperCase();
+            if (st.includes("ANOMALY")) {
+                anomalyCount++;
+            } else if (st.includes("CHECKING")) {
+                checkingCount++;
+            } else if (st.includes("NORMAL")) {
+                normalCount++;
+            }
+        });
+
+        if (statTotalEvents) statTotalEvents.textContent = total.toLocaleString();
+        if (statAnomalyCount) statAnomalyCount.textContent = anomalyCount.toLocaleString();
+        if (statCheckingCount) statCheckingCount.textContent = checkingCount.toLocaleString();
+        if (statNormalCount) statNormalCount.textContent = normalCount.toLocaleString();
+    }
+
+    // -------------------------------------------------------------------------
+    // 10. Update Sensor Analytics Breakdown Table (Sensor Analytics View)
+    // -------------------------------------------------------------------------
+    function updateAnalyticsTable(readings, thresholds, variability, featureExceeded, connected) {
+        if (!analyticsTableBody) return;
+
+        let rowsHtml = "";
+        FEATURE_NAMES.forEach(feat => {
+            const code = feat.toUpperCase();
+            const desc = FEATURE_DESCRIPTIONS[feat] || feat;
+            const unit = FEATURE_UNITS[feat] || "";
+
+            const readingVal = (connected && readings && readings[feat] !== undefined && readings[feat] !== null)
+                ? Number(readings[feat]).toFixed(4) + " " + unit
+                : "--";
+
+            const varianceVal = (connected && variability && variability[feat] !== undefined && variability[feat] !== null)
+                ? Number(variability[feat]).toFixed(4)
+                : "--";
+
+            const thresholdVal = (thresholds && thresholds[feat] !== undefined && thresholds[feat] !== null)
+                ? Number(thresholds[feat]).toFixed(4)
+                : "--";
+
+            const isExceeded = featureExceeded && featureExceeded[feat] === true;
+
+            let ratioPct = 0;
+            let ratioText = "--";
+            if (connected && variability && thresholds && variability[feat] !== undefined && thresholds[feat]) {
+                const ratio = (variability[feat] / thresholds[feat]) * 100;
+                ratioPct = Math.min(100, Math.max(0, ratio));
+                ratioText = ratio.toFixed(1) + "%";
+            }
+
+            const statusBadge = !connected
+                ? `<span class="meter-status awaiting">OFFLINE</span>`
+                : (isExceeded
+                    ? `<span class="meter-status high">EXCEEDED</span>`
+                    : `<span class="meter-status normal">NORMAL</span>`);
+
+            rowsHtml += `
+                <tr>
+                    <td><span class="feature-code">${code}</span></td>
+                    <td>${desc}</td>
+                    <td class="num-val">${readingVal}</td>
+                    <td class="num-val">${varianceVal}</td>
+                    <td class="num-val">${thresholdVal}</td>
+                    <td>
+                        <div class="ratio-cell">
+                            <div class="analytics-ratio-bar">
+                                <div class="analytics-ratio-fill ${isExceeded ? 'exceeded' : ''}" style="width: ${ratioPct}%;"></div>
+                            </div>
+                            <span>${ratioText}</span>
+                        </div>
+                    </td>
+                    <td>${statusBadge}</td>
+                </tr>
+            `;
+        });
+
+        analyticsTableBody.innerHTML = rowsHtml;
+    }
+
+    // -------------------------------------------------------------------------
+    // 11. Fetch Status from /api/status (Every 1000ms)
+    // -------------------------------------------------------------------------
+    async function fetchStatus() {
+        try {
+            const response = await fetch("/api/status", { cache: "no-store" });
+            if (!response.ok) {
+                throw new Error(`HTTP error ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            // 1. Connection & Banner Status
+            updateStatusDisplay(
+                data.status,
+                data.connected,
+                data.error,
+                data.features_exceeded
+            );
+
+            // 2. Telemetry Readings
+            updateReadings(data.readings, data.connected);
+
+            // 3. 6-Feature Variability Indicator
+            updateFeatureMeter(
+                data.thresholds,
+                data.variability,
+                data.feature_exceeded,
+                data.connected
+            );
+
+            // 4. Recent Events List
+            updateEventList(data.events);
+
+            // 5. Event History Summary Statistics
+            updateHistoryStats(data.events);
+
+            // 6. Sensor Analytics Breakdown Table
+            updateAnalyticsTable(
+                data.readings,
+                data.thresholds,
+                data.variability,
+                data.feature_exceeded,
+                data.connected
+            );
+
+            // 7. Check for confirmed anomaly notifications
+            checkAnomalyNotification(data);
+
+            // 8. Samples Processed Count
+            if (samplesProcessed) {
+                samplesProcessed.textContent = (data.samples_processed || 0).toLocaleString();
+            }
+
+            // 9. Last Updated Timestamp
+            if (lastUpdated) {
+                if (data.timestamp) {
+                    lastUpdated.textContent = `Last sensor update: ${data.timestamp}`;
+                } else if (!data.connected) {
+                    lastUpdated.textContent = "Offline (no data stream)";
+                } else {
+                    lastUpdated.textContent = `Awaiting samples (${data.samples_processed || 0} received)`;
+                }
+            }
+
+        } catch (err) {
+            if (connectionDot) {
+                connectionDot.className = "connection-indicator disconnected";
+            }
+            if (connectionText) {
+                connectionText.textContent = "Server Offline";
+            }
+            if (errorBanner) {
+                errorBanner.style.display = "flex";
+                if (errorMessage) {
+                    errorMessage.textContent = `Dashboard API communication error: ${err.message}. Retrying...`;
+                }
+            }
+        }
+    }
+
+    // Initial fetch and schedule periodic poll
+    fetchStatus();
+    setInterval(fetchStatus, 1000);
+});

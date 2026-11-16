@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeSentinel | Live Monitoring</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">ES</div>
+                <div>
+                    <h2>EdgeSentinel</h2>
+                    <p>EDGE INTELLIGENCE</p>
+                </div>
+            </div>
+
+            <div class="nav-label">MONITORING</div>
+            <button class="nav-item active" id="navOverview" data-view="overview" type="button">
+                <span class="nav-icon">◉</span> <span>Live Overview</span>
+            </button>
+            <button class="nav-item" id="navAnalytics" data-view="analytics" type="button">
+                <span class="nav-icon">⌁</span> <span>Sensor Analytics</span>
+            </button>
+            <button class="nav-item" id="navHistory" data-view="history" type="button">
+                <span class="nav-icon">▤</span> <span>Event History</span>
+            </button>
+
+            <div class="sidebar-bottom">
+                <div class="connection-indicator" id="connectionDot"></div>
+                <div>
+                    <strong id="connectionText">Connecting...</strong>
+                    <p>Arduino · COM13</p>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content" id="mainContent" data-view="overview">
+            <header class="topbar">
+                <div>
+                    <p class="eyebrow" id="viewEyebrow">EDGE MONITORING / OVERVIEW</p>
+                    <h1 id="viewTitle">Live Monitoring</h1>
+                    <p class="subtitle" id="viewSubtitle">Real-time equipment movement monitoring</p>
+                </div>
+                <div class="topbar-right">
+                    <button class="notification-btn" id="notificationBtn" type="button" title="Enable browser notifications for confirmed anomalies">
+                        <span class="notif-bell" id="notificationIcon">🔔</span>
+                        <span id="notificationBtnText">Enable Alerts</span>
+                    </button>
+                    <div class="live-pill">
+                        <span class="live-dot"></span>
+                        <span>LIVE SYSTEM</span>
+                    </div>
+                    <div class="clock" id="clock">--:--:--</div>
+                </div>
+            </header>
+
+            <section class="status-banner" id="statusBanner">
+                <div class="status-symbol" id="statusSymbol">✓</div>
+                <div class="status-copy">
+                    <p>CURRENT SYSTEM STATUS</p>
+                    <h2 id="systemStatus">CONNECTING</h2>
+                    <span id="statusDescription">Waiting for sensor readings...</span>
+                </div>
+                <div class="status-right">
+                    <span class="status-label">FEATURES EXCEEDED</span>
+                    <strong id="featuresExceeded">0 / 6</strong>
+                </div>
+            </section>
+
+            <div class="error-banner" id="errorBanner" style="display: none;">
+                <div class="error-icon">⚠</div>
+                <div class="error-copy">
+                    <strong id="errorTitle">Connection & Hardware Notice</strong>
+                    <p id="errorMessage"></p>
+                </div>
+            </div>
+
+            <!-- Event History Stats Cards (Active in Event History view) -->
+            <section class="history-stats-grid" id="historyStats">
+                <div class="history-stat-card">
+                    <span class="stat-label">TOTAL LOGGED EVENTS</span>
+                    <strong class="stat-value" id="statTotalEvents">0</strong>
+                    <span class="stat-desc">Status transitions</span>
+                </div>
+                <div class="history-stat-card anomaly">
+                    <span class="stat-label">CONFIRMED ANOMALIES</span>
+                    <strong class="stat-value" id="statAnomalyCount">0</strong>
+                    <span class="stat-desc">Threshold violations</span>
+                </div>
+                <div class="history-stat-card checking">
+                    <span class="stat-label">MOVEMENT CHECKS</span>
+                    <strong class="stat-value" id="statCheckingCount">0</strong>
+                    <span class="stat-desc">Single-window flags</span>
+                </div>
+                <div class="history-stat-card normal">
+                    <span class="stat-label">NORMAL TRANSITIONS</span>
+                    <strong class="stat-value" id="statNormalCount">0</strong>
+                    <span class="stat-desc">Baseline operating state</span>
+                </div>
+            </section>
+
+            <!-- Sensor Telemetry Section (Active in Live Overview and Sensor Analytics) -->
+            <div class="sensor-section" id="sensorSection">
+                <section class="section-heading">
+                    <div>
+                        <h2>Sensor Telemetry</h2>
+                        <p>Latest readings received from the MPU6050</p>
+                    </div>
+                    <span class="update-label">AUTO-REFRESH · 1 SEC | SAMPLES: <strong id="samplesProcessed">0</strong></span>
+                </section>
+
+                <section class="sensor-grid">
+                    <article class="sensor-card">
+                        <div class="card-top"><span>ACCELERATION X</span><span class="axis">AX</span></div>
+                        <div class="reading"><strong id="ax">--</strong><span>m/s²</span></div>
+                        <div class="card-footer">Linear acceleration</div>
+                    </article>
+                    <article class="sensor-card">
+                        <div class="card-top"><span>ACCELERATION Y</span><span class="axis">AY</span></div>
+                        <div class="reading"><strong id="ay">--</strong><span>m/s²</span></div>
+                        <div class="card-footer">Linear acceleration</div>
+                    </article>
+                    <article class="sensor-card">
+                        <div class="card-top"><span>ACCELERATION Z</span><span class="axis">AZ</span></div>
+                        <div class="reading"><strong id="az">--</strong><span>m/s²</span></div>
+                        <div class="card-footer">Linear acceleration</div>
+                    </article>
+                    <article class="sensor-card">
+                        <div class="card-top"><span>GYROSCOPE X</span><span class="axis">GX</span></div>
+                        <div class="reading"><strong id="gx">--</strong><span>°/s*</span></div>
+                        <div class="card-footer">Angular velocity</div>
+                    </article>
+                    <article class="sensor-card">
+                        <div class="card-top"><span>GYROSCOPE Y</span><span class="axis">GY</span></div>
+                        <div class="reading"><strong id="gy">--</strong><span>°/s*</span></div>
+                        <div class="card-footer">Angular velocity</div>
+                    </article>
+                    <article class="sensor-card">
+                        <div class="card-top"><span>GYROSCOPE Z</span><span class="axis">GZ</span></div>
+                        <div class="reading"><strong id="gz">--</strong><span>°/s*</span></div>
+                        <div class="card-footer">Angular velocity</div>
+                    </article>
+                </section>
+            </div>
+
+            <section class="bottom-grid" id="bottomGrid">
+                <article class="panel" id="panelDetection">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>Detection Overview</h2>
+                            <p>Current variability check</p>
+                        </div>
+                        <span class="mini-badge">6 FEATURES</span>
+                    </div>
+                    <div class="feature-meter" id="featureMeter"></div>
+                    <div class="meter-labels"><span>Within thresholds</span><span>Above thresholds</span></div>
+                    <p class="note">Movement alerts indicate unusual sensor variation, not confirmed equipment failure.</p>
+                </article>
+
+                <article class="panel" id="panelEvents">
+                    <div class="panel-heading">
+                        <div>
+                            <h2 id="eventsPanelTitle">Recent Events</h2>
+                            <p id="eventsPanelSubtitle">Latest detector status changes</p>
+                        </div>
+                        <span class="mini-badge" id="eventsBadge">LATEST 100</span>
+                    </div>
+                    <div class="event-list" id="eventList">
+                        <p class="empty-state">Waiting for the first event...</p>
+                    </div>
+                </article>
+            </section>
+
+            <!-- Feature Thresholds & Variability Analytics (Active in Sensor Analytics view) -->
+            <article class="panel analytics-panel" id="panelAnalyticsTable">
+                <div class="panel-heading">
+                    <div>
+                        <h2>Feature Thresholds & Variability Analysis</h2>
+                        <p>Window size: 100 samples | Anomaly trigger: ≥ 3 features exceeded across 2 consecutive windows</p>
+                    </div>
+                    <span class="mini-badge">STATISTICAL BASELINE</span>
+                </div>
+                <div class="analytics-table-container">
+                    <table class="analytics-table" id="analyticsTable">
+                        <thead>
+                            <tr>
+                                <th>FEATURE</th>
+                                <th>AXIS DESCRIPTION</th>
+                                <th>CURRENT READING</th>
+                                <th>WINDOW VARIABILITY (σ)</th>
+                                <th>99% BASELINE LIMIT</th>
+                                <th>VARIANCE RATIO</th>
+                                <th>STATUS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="analyticsTableBody">
+                            <!-- Populated dynamically via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+
+            <footer>
+                <span>EDGESENTINEL · LOCAL MONITORING</span>
+                <span id="lastUpdated">Waiting for data</span>
+            </footer>
+        </main>
+    </div>
+
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>

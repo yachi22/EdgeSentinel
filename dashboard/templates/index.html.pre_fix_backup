@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeSentinel | Industrial Edge Analytics Platform</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-shell">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar" aria-label="Main Navigation">
+            <div class="brand">
+                <div class="brand-icon" aria-hidden="true">ES</div>
+                <div class="brand-text">
+                    <h2>EdgeSentinel</h2>
+                    <p>INDUSTRIAL ANALYTICS</p>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <div class="nav-label">PLATFORM VIEWS</div>
+                <button class="nav-item active" id="navOverview" data-view="overview" type="button">
+                    <span class="nav-icon" aria-hidden="true">⊞</span>
+                    <span>Live Overview</span>
+                </button>
+                <button class="nav-item" id="navAnalytics" data-view="analytics" type="button">
+                    <span class="nav-icon" aria-hidden="true">⌁</span>
+                    <span>Sensor Analytics</span>
+                </button>
+                <button class="nav-item" id="navAi" data-view="ai" type="button">
+                    <span class="nav-icon" aria-hidden="true">◈</span>
+                    <span>AI Anomaly Analysis</span>
+                </button>
+                <button class="nav-item" id="navHistory" data-view="history" type="button">
+                    <span class="nav-icon" aria-hidden="true">▤</span>
+                    <span>Alerts & Events</span>
+                </button>
+                <button class="nav-item" id="navDiagnostics" data-view="diagnostics" type="button">
+                    <span class="nav-icon" aria-hidden="true">⚙</span>
+                    <span>Device Diagnostics</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-bottom">
+                <div class="connection-indicator disconnected" id="sidebarDot" aria-hidden="true"></div>
+                <div class="sidebar-device-info">
+                    <strong id="sidebarConnectionText">Disconnected</strong>
+                    <p id="sidebarPortInfo">Arduino · COM13 (115200)</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content" id="mainContent" data-view="overview">
+            <!-- Header Topbar -->
+            <header class="topbar">
+                <div class="topbar-left">
+                    <div class="eyebrow" id="viewEyebrow">EDGE MONITORING / OVERVIEW</div>
+                    <h1 id="viewTitle">Live Industrial Analytics</h1>
+                    <p class="subtitle" id="viewSubtitle">Real-time edge sensor telemetry, statistical baseline tracking, and ML anomaly detection</p>
+                </div>
+
+                <div class="topbar-right">
+                    <!-- Connectivity Badge -->
+                    <div class="status-pill" id="connectivityBadge" title="Hardware link status">
+                        <span class="pill-dot disconnected" id="headerDot"></span>
+                        <span id="headerConnText">COM13: Disconnected</span>
+                    </div>
+
+                    <!-- Theme Toggle -->
+                    <button class="theme-toggle-btn" id="themeToggleBtn" type="button" aria-label="Toggle light and dark theme">
+                        <span class="theme-toggle-icon" id="themeToggleIcon" aria-hidden="true">☀️</span>
+                        <span class="theme-toggle-text" id="themeToggleText">Light</span>
+                    </button>
+
+                    <!-- Browser Notification Button -->
+                    <button class="notification-btn" id="notificationBtn" type="button" title="Enable browser alerts for confirmed anomalies">
+                        <span class="notif-bell" id="notificationIcon" aria-hidden="true">🔔</span>
+                        <span id="notificationBtnText">Enable Alerts</span>
+                    </button>
+
+                    <!-- Real-Time Clock -->
+                    <div class="clock-display" id="clock" aria-label="Current system time">--:--:--</div>
+                </div>
+            </header>
+
+            <!-- Operational Status Banner -->
+            <section class="status-banner status-disconnected" id="statusBanner" aria-live="polite">
+                <div class="status-symbol" id="statusSymbol" aria-hidden="true">✕</div>
+                <div class="status-copy">
+                    <span class="status-kicker">DETECTOR OPERATIONAL STATE</span>
+                    <h2 id="systemStatus">DISCONNECTED</h2>
+                    <p id="statusDescription">Waiting for sensor readings from Arduino Uno on COM13...</p>
+                </div>
+                <div class="status-stats">
+                    <div class="status-stat-block">
+                        <span class="status-stat-label">FEATURES EXCEEDED</span>
+                        <strong class="status-stat-value" id="featuresExceeded">0 / 6</strong>
+                    </div>
+                    <div class="status-stat-block">
+                        <span class="status-stat-label">LAST READING</span>
+                        <strong class="status-stat-value" id="lastReadingTime">--:--:--</strong>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Hardware Notice Banner (Shown on error or disconnection) -->
+            <div class="error-banner" id="errorBanner" role="alert" style="display: none;">
+                <div class="error-icon" aria-hidden="true">⚠</div>
+                <div class="error-copy">
+                    <strong id="errorTitle">Hardware Connection Notice</strong>
+                    <p id="errorMessage">Waiting for serial stream...</p>
+                </div>
+            </div>
+
+            <!-- Overview KPI Cards (Active in Overview and Diagnostics) -->
+            <section class="kpi-grid" id="kpiGrid" aria-label="Key Performance Indicators">
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-title">HARDWARE INTERFACE</span>
+                        <span class="kpi-badge neutral" id="kpiPortBadge">COM13</span>
+                    </div>
+                    <div class="kpi-value" id="kpiConnectionStatus">Disconnected</div>
+                    <div class="kpi-subtext" id="kpiBaudSubtext">115,200 baud · MPU-6050</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-title">OPERATING STATE</span>
+                        <span class="kpi-badge neutral" id="kpiStateBadge">STANDBY</span>
+                    </div>
+                    <div class="kpi-value" id="kpiStateValue">DISCONNECTED</div>
+                    <div class="kpi-subtext">Statistical window evaluator</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-title">THRESHOLD VIOLATIONS</span>
+                        <span class="kpi-badge neutral" id="kpiThresholdBadge">99% LIMIT</span>
+                    </div>
+                    <div class="kpi-value" id="kpiExceededValue">0 / 6</div>
+                    <div class="kpi-subtext">Features exceeding baseline σ</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-title">SAMPLES INGESTED</span>
+                        <span class="kpi-badge neutral">100 S/W</span>
+                    </div>
+                    <div class="kpi-value" id="samplesProcessed">0</div>
+                    <div class="kpi-subtext">Total valid readings received</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-title">ISOLATION FOREST ML</span>
+                        <span class="kpi-badge success" id="kpiModelBadge">ACTIVE</span>
+                    </div>
+                    <div class="kpi-value" id="kpiModelStatus">Loaded</div>
+                    <div class="kpi-subtext" id="kpiModelSubtext">150 trees · Clean baseline</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-title">ANOMALY SCORE</span>
+                        <span class="kpi-badge neutral" id="kpiScoreBadge">DECISION</span>
+                    </div>
+                    <div class="kpi-value" id="kpiAnomalyScore">--</div>
+                    <div class="kpi-subtext" id="kpiScoreSubtext">Positive: Inlier | Negative: Outlier</div>
+                </div>
+            </section>
+
+            <!-- Sensor Telemetry Cards (Overview & Analytics) -->
+            <section class="telemetry-section" id="sensorSection" aria-label="Sensor Telemetry">
+                <div class="section-header">
+                    <div>
+                        <h2>Real-Time Sensor Telemetry</h2>
+                        <p>Raw 6-DOF inertial measurement units received from InvenSense MPU-6050</p>
+                    </div>
+                    <div class="section-meta">
+                        <span class="live-indicator"><span class="live-dot"></span> LIVE TELEMETRY</span>
+                    </div>
+                </div>
+
+                <div class="sensor-cards-grid">
+                    <article class="sensor-card">
+                        <div class="card-head">
+                            <span class="sensor-axis">AX</span>
+                            <span class="sensor-category">ACCELERATION</span>
+                        </div>
+                        <div class="sensor-reading">
+                            <strong id="ax">--</strong>
+                            <span class="sensor-unit">m/s²</span>
+                        </div>
+                        <div class="sensor-desc">X-Axis Linear Acceleration (Forward/Back)</div>
+                    </article>
+
+                    <article class="sensor-card">
+                        <div class="card-head">
+                            <span class="sensor-axis">AY</span>
+                            <span class="sensor-category">ACCELERATION</span>
+                        </div>
+                        <div class="sensor-reading">
+                            <strong id="ay">--</strong>
+                            <span class="sensor-unit">m/s²</span>
+                        </div>
+                        <div class="sensor-desc">Y-Axis Linear Acceleration (Lateral/Side)</div>
+                    </article>
+
+                    <article class="sensor-card">
+                        <div class="card-head">
+                            <span class="sensor-axis">AZ</span>
+                            <span class="sensor-category">ACCELERATION</span>
+                        </div>
+                        <div class="sensor-reading">
+                            <strong id="az">--</strong>
+                            <span class="sensor-unit">m/s²</span>
+                        </div>
+                        <div class="sensor-desc">Z-Axis Linear Acceleration (Vertical/Gravity)</div>
+                    </article>
+
+                    <article class="sensor-card">
+                        <div class="card-head">
+                            <span class="sensor-axis">GX</span>
+                            <span class="sensor-category">GYROSCOPE</span>
+                        </div>
+                        <div class="sensor-reading">
+                            <strong id="gx">--</strong>
+                            <span class="sensor-unit">°/s</span>
+                        </div>
+                        <div class="sensor-desc">X-Axis Angular Velocity (Roll Rate)</div>
+                    </article>
+
+                    <article class="sensor-card">
+                        <div class="card-head">
+                            <span class="sensor-axis">GY</span>
+                            <span class="sensor-category">GYROSCOPE</span>
+                        </div>
+                        <div class="sensor-reading">
+                            <strong id="gy">--</strong>
+                            <span class="sensor-unit">°/s</span>
+                        </div>
+                        <div class="sensor-desc">Y-Axis Angular Velocity (Pitch Rate)</div>
+                    </article>
+
+                    <article class="sensor-card">
+                        <div class="card-head">
+                            <span class="sensor-axis">GZ</span>
+                            <span class="sensor-category">GYROSCOPE</span>
+                        </div>
+                        <div class="sensor-reading">
+                            <strong id="gz">--</strong>
+                            <span class="sensor-unit">°/s</span>
+                        </div>
+                        <div class="sensor-desc">Z-Axis Angular Velocity (Yaw Rate)</div>
+                    </article>
+                </div>
+            </section>
+
+            <!-- Time-Series Analytics Charts Section (Overview & Analytics) -->
+            <section class="charts-section" id="chartsSection" aria-label="Sensor Analytics Charts">
+                <div class="section-header">
+                    <div>
+                        <h2>Inertial Time-Series Analytics</h2>
+                        <p>Continuous dynamic telemetry waveform monitoring with calibrated measurement scales</p>
+                    </div>
+                    <div class="chart-controls">
+                        <div class="btn-group" role="group" aria-label="Time series window">
+                            <button class="range-btn active" data-samples="30" type="button">30s</button>
+                            <button class="range-btn" data-samples="60" type="button">60s</button>
+                            <button class="range-btn" data-samples="100" type="button">All Buffer</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <!-- Acceleration Chart -->
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <div>
+                                <h3>Linear Acceleration (AX, AY, AZ)</h3>
+                                <p class="chart-sub">Measured in meters per second squared (m/s²)</p>
+                            </div>
+                            <span class="chart-badge">ACCELEROMETER</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="accelChart" aria-label="Acceleration time series chart" role="img"></canvas>
+                            <div class="chart-empty-overlay" id="accelChartEmpty">
+                                <span class="empty-icon">📈</span>
+                                <strong>Awaiting Live Sensor Stream</strong>
+                                <p>Connect Arduino Uno on COM13 to begin plotting linear acceleration</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gyroscope Chart -->
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <div>
+                                <h3>Angular Velocity (GX, GY, GZ)</h3>
+                                <p class="chart-sub">Measured in degrees per second (°/s)</p>
+                            </div>
+                            <span class="chart-badge">GYROSCOPE</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="gyroChart" aria-label="Gyroscope time series chart" role="img"></canvas>
+                            <div class="chart-empty-overlay" id="gyroChartEmpty">
+                                <span class="empty-icon">📈</span>
+                                <strong>Awaiting Live Sensor Stream</strong>
+                                <p>Connect Arduino Uno on COM13 to begin plotting angular velocity</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Feature Variability Meters & Summary (Overview & Analytics) -->
+            <section class="features-summary-section" id="featureSummarySection">
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>6-Feature Statistical Variability Tracking</h2>
+                            <p>100-sample window standard deviation (σ) versus 99th-percentile baseline threshold limits</p>
+                        </div>
+                        <span class="badge neutral">WINDOW: 100 SAMPLES</span>
+                    </div>
+
+                    <div class="feature-meters-grid" id="featureMeter">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+
+                    <div class="meter-legend">
+                        <div class="legend-item"><span class="legend-box normal"></span> Within Baseline Threshold (Normal Operation)</div>
+                        <div class="legend-item"><span class="legend-box exceeded"></span> Exceeded 99% Baseline Quantile (Unusual Movement)</div>
+                    </div>
+
+                    <p class="panel-disclaimer">Movement alerts indicate statistical sensor variance above baseline limits, not verified mechanical failure.</p>
+                </div>
+            </section>
+
+            <!-- Detailed Feature Analysis Table (Active in Sensor Analytics view) -->
+            <section class="analytics-table-section" id="panelAnalyticsTable">
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Equipment Health & Statistical Feature Matrix</h2>
+                            <p>Window size: 100 samples · Anomaly trigger: ≥ 3 features exceeded across ≥ 2 consecutive windows</p>
+                        </div>
+                        <span class="badge neutral">BASELINE QUANTILE: 0.99</span>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table" id="analyticsTable">
+                            <thead>
+                                <tr>
+                                    <th scope="col">FEATURE</th>
+                                    <th scope="col">AXIS DESCRIPTION</th>
+                                    <th scope="col">CURRENT VALUE</th>
+                                    <th scope="col">ROLLING MEAN (μ)</th>
+                                    <th scope="col">WINDOW VARIABILITY (σ)</th>
+                                    <th scope="col">99% BASELINE LIMIT</th>
+                                    <th scope="col">VARIANCE RATIO</th>
+                                    <th scope="col">OPERATING STATUS</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analyticsTableBody">
+                                <!-- Populated dynamically via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Dedicated AI Anomaly Analysis Panel (Active in AI view) -->
+            <section class="ai-panel-section" id="panelAiAnalysis">
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>AI Anomaly Analysis & Model Inference</h2>
+                            <p>Unsupervised Machine Learning combined with dual-window statistical verification</p>
+                        </div>
+                        <span class="badge success" id="aiModelBadge">ISOLATION FOREST</span>
+                    </div>
+
+                    <div class="ai-grid">
+                        <!-- Model Architecture & Score Card -->
+                        <div class="ai-card">
+                            <h3>Model Architecture & Anomaly Score</h3>
+                            <div class="score-display">
+                                <div class="score-number-box">
+                                    <span class="score-label">ISOLATION DECISION SCORE</span>
+                                    <strong class="score-number" id="aiDecisionScore">--</strong>
+                                    <span class="score-interp" id="aiScoreInterp">Score interpretation awaiting live inference</span>
+                                </div>
+                                <div class="score-scale">
+                                    <div class="scale-bar">
+                                        <div class="scale-center-marker" title="Decision boundary (0.0)"></div>
+                                        <div class="scale-needle" id="aiScoreNeedle" style="left: 50%;"></div>
+                                    </div>
+                                    <div class="scale-labels">
+                                        <span>-0.5 (Severe Outlier)</span>
+                                        <span>0.0 (Decision Boundary)</span>
+                                        <span>+0.5 (Normal Inlier)</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="ai-metrics-list">
+                                <div class="ai-metric-row">
+                                    <span>Model Type:</span>
+                                    <strong>Isolation Forest (150 estimators, contamination=0.03)</strong>
+                                </div>
+                                <div class="ai-metric-row">
+                                    <span>Training Source:</span>
+                                    <strong>Clean baseline dataset (edgesentinel_clean_baseline.csv)</strong>
+                                </div>
+                                <div class="ai-metric-row">
+                                    <span>Last Inference Time:</span>
+                                    <strong id="aiLastInference">--:--:--</strong>
+                                </div>
+                                <div class="ai-metric-row">
+                                    <span>Model Verdict:</span>
+                                    <strong id="aiModelVerdict">NORMAL</strong>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Detection Logic & Rules -->
+                        <div class="ai-card">
+                            <h3>Statistical Detection Rules</h3>
+                            <p class="card-intro">Dual-stage temporal thresholding eliminates transient false alarms:</p>
+                            <ul class="rule-checklist">
+                                <li class="rule-item">
+                                    <span class="rule-dot" id="ruleWindowDot">●</span>
+                                    <div>
+                                        <strong>100-Sample Sliding Window:</strong>
+                                        <p>Standard deviation (variability) calculated across the latest 100 readings per axis.</p>
+                                    </div>
+                                </li>
+                                <li class="rule-item">
+                                    <span class="rule-dot" id="ruleFeaturesDot">●</span>
+                                    <div>
+                                        <strong>Multivariate Violation (≥ 3 of 6):</strong>
+                                        <p id="ruleFeaturesStatus">Current: 0 / 6 features exceeding 99% baseline threshold.</p>
+                                    </div>
+                                </li>
+                                <li class="rule-item">
+                                    <span class="rule-dot" id="ruleConsecutiveDot">●</span>
+                                    <div>
+                                        <strong>Temporal Confirmation (2 Windows):</strong>
+                                        <p>Single window flags enter <em>CHECKING MOVEMENT</em>; confirmed anomaly requires 2 consecutive flagged windows.</p>
+                                    </div>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Recommended Inspection Steps & Physical Root Cause -->
+                    <div class="ai-inspection-card">
+                        <h3>Condition-Based Inspection Guidelines</h3>
+                        <div class="inspection-columns">
+                            <div class="inspection-col">
+                                <div class="inspection-header">
+                                    <span class="axis-tag">LINEAR ACCELERATION (AX, AY, AZ)</span>
+                                    <strong>Vibration & Shock Diagnostics</strong>
+                                </div>
+                                <p>If linear acceleration features exceed baseline limits:</p>
+                                <ol class="guideline-list">
+                                    <li>Inspect physical equipment mounting brackets and fasteners for looseness.</li>
+                                    <li>Check for excessive mechanical vibration, uneven motor mounting, or external shock.</li>
+                                    <li>Examine adjacent structural components for resonance at operating speed.</li>
+                                </ol>
+                            </div>
+                            <div class="inspection-col">
+                                <div class="inspection-header">
+                                    <span class="axis-tag">ANGULAR VELOCITY (GX, GY, GZ)</span>
+                                    <strong>Rotation & Bearing Diagnostics</strong>
+                                </div>
+                                <p>If gyroscope angular rate features exceed baseline limits:</p>
+                                <ol class="guideline-list">
+                                    <li>Check shaft alignment, bearing play, and rotational wobble.</li>
+                                    <li>Verify tilt angle stability and inspect for unwanted torsional oscillation.</li>
+                                    <li>Assess dynamic balance of rotating components under operating load.</li>
+                                </ol>
+                            </div>
+                        </div>
+
+                        <!-- Mandatory Technical Distinction -->
+                        <div class="scope-disclaimer">
+                            <div class="disclaimer-badge">ENGINEERING SCOPE NOTICE</div>
+                            <p>EdgeSentinel performs <strong>unsupervised anomaly detection</strong> by identifying statistical deviations from known baseline operation. This system distinguishes unusual operational movements from normal baselines; it does <strong>not</strong> claim to diagnose specific internal mechanical fault modes or compute remaining useful life (RUL) without verified failure-mode training data.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Alerts & Event History Section (Active in History view & Overview preview) -->
+            <section class="history-section" id="panelHistory">
+                <!-- Event History Stats Cards -->
+                <div class="history-stats-grid" id="historyStats">
+                    <div class="history-stat-card">
+                        <span class="stat-label">TOTAL LOGGED EVENTS</span>
+                        <strong class="stat-value" id="statTotalEvents">0</strong>
+                        <span class="stat-desc">Status transitions</span>
+                    </div>
+                    <div class="history-stat-card anomaly">
+                        <span class="stat-label">CONFIRMED ANOMALIES</span>
+                        <strong class="stat-value" id="statAnomalyCount">0</strong>
+                        <span class="stat-desc">Consecutive window violations</span>
+                    </div>
+                    <div class="history-stat-card checking">
+                        <span class="stat-label">MOVEMENT CHECKS</span>
+                        <strong class="stat-value" id="statCheckingCount">0</strong>
+                        <span class="stat-desc">Single-window flags</span>
+                    </div>
+                    <div class="history-stat-card normal">
+                        <span class="stat-label">NORMAL OPERATING STATES</span>
+                        <strong class="stat-value" id="statNormalCount">0</strong>
+                        <span class="stat-desc">Baseline operating state</span>
+                    </div>
+                </div>
+
+                <div class="panel" id="panelEvents">
+                    <div class="panel-header">
+                        <div>
+                            <h2 id="eventsPanelTitle">Alerts & Event History Log</h2>
+                            <p id="eventsPanelSubtitle">Chronological log of detector status transitions and anomaly confirmations</p>
+                        </div>
+                        <div class="event-filter-controls">
+                            <input type="search" class="search-input" id="eventSearchInput" placeholder="Filter by time or status..." aria-label="Search events">
+                            <div class="btn-group" role="group" aria-label="Filter events by severity">
+                                <button class="filter-btn active" data-filter="all" type="button">All</button>
+                                <button class="filter-btn" data-filter="anomaly" type="button">Anomalies</button>
+                                <button class="filter-btn" data-filter="checking" type="button">Checking</button>
+                                <button class="filter-btn" data-filter="normal" type="button">Normal</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="event-list" id="eventList" role="feed" aria-label="Events list">
+                        <p class="empty-state">Waiting for the first event...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Device Diagnostics Section (Active in Diagnostics view) -->
+            <section class="diagnostics-section" id="panelDiagnostics">
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Hardware & System Diagnostics</h2>
+                            <p>Real-time physical telemetry interfaces, sensor bus health, and edge host computing metrics</p>
+                        </div>
+                        <span class="badge neutral">HARDWARE TELEMETRY</span>
+                    </div>
+
+                    <div class="diag-grid">
+                        <div class="diag-card">
+                            <h3>Microcontroller & Sensor Link</h3>
+                            <div class="diag-row">
+                                <span>Serial Interface:</span>
+                                <strong id="diagPort">COM13 @ 115,200 baud</strong>
+                            </div>
+                            <div class="diag-row">
+                                <span>Sensor Model:</span>
+                                <strong>InvenSense MPU-6050 (6-DOF IMU)</strong>
+                            </div>
+                            <div class="diag-row">
+                                <span>Bus Protocol:</span>
+                                <strong>I2C Serial Interfacing</strong>
+                            </div>
+                            <div class="diag-row">
+                                <span>Link State:</span>
+                                <strong id="diagLinkState">Disconnected (Searching)</strong>
+                            </div>
+                            <div class="diag-row">
+                                <span>Data Freshness:</span>
+                                <strong id="diagFreshness">OFFLINE</strong>
+                            </div>
+                        </div>
+
+                        <div class="diag-card">
+                            <h3>Edge Host Performance</h3>
+                            <div class="diag-row">
+                                <span>Host CPU Utilization:</span>
+                                <strong id="diagCpu">-- %</strong>
+                            </div>
+                            <div class="diag-row">
+                                <span>System Memory Usage:</span>
+                                <strong id="diagMem">-- %</strong>
+                            </div>
+                            <div class="diag-row">
+                                <span>Process Memory:</span>
+                                <strong id="diagProcMem">-- MB</strong>
+                            </div>
+                            <div class="diag-row">
+                                <span>Server Uptime:</span>
+                                <strong id="diagUptime">--</strong>
+                            </div>
+                            <div class="diag-row">
+                                <span>Sampling Window:</span>
+                                <strong>100 samples per evaluation</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="diag-troubleshoot-card">
+                        <h3>Ingestion Guidance & Hardware Diagnostics</h3>
+                        <p>If the device displays Disconnected or experiences I2C bus lockup:</p>
+                        <ul class="troubleshoot-list">
+                            <li>Ensure Arduino Uno is firmly connected to USB and assigned to <strong>COM13</strong> in Windows Device Manager.</li>
+                            <li>Close any conflicting serial monitors (e.g. Arduino IDE Serial Monitor, Python command line detectors).</li>
+                            <li>Verify 4-wire MPU-6050 wiring: VCC to 5V/3.3V, GND to Ground, SDA to Arduino A4 (or dedicated SDA pin), SCL to Arduino A5 (or dedicated SCL pin).</li>
+                            <li>The backend automatically pulses the DTR line to cleanly restart the ATmega328P microcontroller upon connection.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Application Footer -->
+            <footer class="app-footer">
+                <div class="footer-left">
+                    <span>EDGESENTINEL INDUSTRIAL ANALYTICS</span>
+                    <span class="footer-sep">·</span>
+                    <span>LOCAL EDGE MONITORING</span>
+                </div>
+                <div class="footer-right">
+                    <span id="lastUpdated">Awaiting sensor data</span>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <!-- Chart.js (Served locally from /static/ for 100% offline edge operation) -->
+    <script src="/static/chart.umd.min.js"></script>
+    <!-- Application Logic -->
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>

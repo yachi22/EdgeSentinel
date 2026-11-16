@@ -1,10 +1,12 @@
 /**
- * EdgeSentinel Live Monitoring Dashboard
- * Frontend Telemetry & Event Polling
+ * EdgeSentinel Industrial Analytics Platform
+ * Frontend Telemetry Engine, Theme Toggle, Time-Series Charts & Diagnostics
  */
 
 document.addEventListener("DOMContentLoaded", () => {
-    // Clock in topbar
+    // -------------------------------------------------------------------------
+    // 1. Digital Clock
+    // -------------------------------------------------------------------------
     function updateClock() {
         const now = new Date();
         const timeStr = now.toTimeString().split(" ")[0];
@@ -16,20 +18,111 @@ document.addEventListener("DOMContentLoaded", () => {
     setInterval(updateClock, 1000);
     updateClock();
 
-    // DOM Elements
-    const connectionDot = document.getElementById("connectionDot");
-    const connectionText = document.getElementById("connectionText");
+    // -------------------------------------------------------------------------
+    // 2. State & Chart Variables (Declared at top of scope to prevent TDZ ReferenceError)
+    // -------------------------------------------------------------------------
+    let accelChart = null;
+    let gyroChart = null;
+    let maxVisibleSamples = 30; // 30s, 60s, or 100s buffer window
+    const historyBuffer = [];
+    const MAX_BUFFER = 100;
+
+    let cachedEvents = [];
+    let currentFilter = "all";
+    let searchQuery = "";
+
+    let isInitialPoll = true;
+    let lastAnomalyKey = null;
+    let lastAnomalyStatus = null;
+
+    // -------------------------------------------------------------------------
+    // 3. DOM Elements (with fallbacks for new and legacy template IDs)
+    // -------------------------------------------------------------------------
+    const mainContent = document.getElementById("mainContent");
+    const viewEyebrow = document.getElementById("viewEyebrow");
+    const viewTitle = document.getElementById("viewTitle");
+    const viewSubtitle = document.getElementById("viewSubtitle");
+    const navItems = document.querySelectorAll(".nav-item[data-view]");
+
+    // Theme toggle
+    const themeToggleBtn = document.getElementById("themeToggleBtn");
+    const themeToggleIcon = document.getElementById("themeToggleIcon");
+    const themeToggleText = document.getElementById("themeToggleText");
+
+    // Header & Sidebar indicators (supports sidebarDot, headerDot, and legacy connectionDot)
+    const headerDot = document.getElementById("headerDot");
+    const headerConnText = document.getElementById("headerConnText");
+    const sidebarDot = document.getElementById("sidebarDot") || document.getElementById("connectionDot");
+    const sidebarConnectionText = document.getElementById("sidebarConnectionText") || document.getElementById("connectionText");
+    const sidebarPortInfo = document.getElementById("sidebarPortInfo");
+
+    // Status Banner
     const statusBanner = document.getElementById("statusBanner");
     const statusSymbol = document.getElementById("statusSymbol");
     const systemStatus = document.getElementById("systemStatus");
     const statusDescription = document.getElementById("statusDescription");
     const featuresExceeded = document.getElementById("featuresExceeded");
+    const lastReadingTime = document.getElementById("lastReadingTime");
     const errorBanner = document.getElementById("errorBanner");
     const errorMessage = document.getElementById("errorMessage");
+
+    // KPI Card Elements
+    const kpiConnectionStatus = document.getElementById("kpiConnectionStatus");
+    const kpiPortBadge = document.getElementById("kpiPortBadge");
+    const kpiBaudSubtext = document.getElementById("kpiBaudSubtext");
+    const kpiStateValue = document.getElementById("kpiStateValue");
+    const kpiStateBadge = document.getElementById("kpiStateBadge");
+    const kpiExceededValue = document.getElementById("kpiExceededValue");
     const samplesProcessed = document.getElementById("samplesProcessed");
-    const lastUpdated = document.getElementById("lastUpdated");
+    const kpiModelStatus = document.getElementById("kpiModelStatus");
+    const kpiModelBadge = document.getElementById("kpiModelBadge");
+    const kpiModelSubtext = document.getElementById("kpiModelSubtext");
+    const kpiAnomalyScore = document.getElementById("kpiAnomalyScore");
+    const kpiScoreSubtext = document.getElementById("kpiScoreSubtext");
+
+    // Feature & Telemetry Elements
     const featureMeter = document.getElementById("featureMeter");
+    const analyticsTableBody = document.getElementById("analyticsTableBody");
+    const lastUpdated = document.getElementById("lastUpdated");
+
+    // AI Panel Elements
+    const aiDecisionScore = document.getElementById("aiDecisionScore");
+    const aiScoreInterp = document.getElementById("aiScoreInterp");
+    const aiScoreNeedle = document.getElementById("aiScoreNeedle");
+    const aiLastInference = document.getElementById("aiLastInference");
+    const aiModelVerdict = document.getElementById("aiModelVerdict");
+    const aiModelBadge = document.getElementById("aiModelBadge");
+    const ruleFeaturesStatus = document.getElementById("ruleFeaturesStatus");
+    const ruleFeaturesDot = document.getElementById("ruleFeaturesDot");
+    const ruleConsecutiveDot = document.getElementById("ruleConsecutiveDot");
+
+    // Event History Elements
     const eventList = document.getElementById("eventList");
+    const eventSearchInput = document.getElementById("eventSearchInput");
+    const filterBtns = document.querySelectorAll(".filter-btn[data-filter]");
+    const statTotalEvents = document.getElementById("statTotalEvents");
+    const statAnomalyCount = document.getElementById("statAnomalyCount");
+    const statCheckingCount = document.getElementById("statCheckingCount");
+    const statNormalCount = document.getElementById("statNormalCount");
+
+    // Device Diagnostics Elements
+    const diagPort = document.getElementById("diagPort");
+    const diagLinkState = document.getElementById("diagLinkState");
+    const diagFreshness = document.getElementById("diagFreshness");
+    const diagCpu = document.getElementById("diagCpu");
+    const diagMem = document.getElementById("diagMem");
+    const diagProcMem = document.getElementById("diagProcMem");
+    const diagUptime = document.getElementById("diagUptime");
+
+    // Notification elements
+    const notificationBtn = document.getElementById("notificationBtn");
+    const notificationIcon = document.getElementById("notificationIcon");
+    const notificationBtnText = document.getElementById("notificationBtnText");
+
+    // Chart Overlays
+    const accelChartEmpty = document.getElementById("accelChartEmpty");
+    const gyroChartEmpty = document.getElementById("gyroChartEmpty");
+    const rangeBtns = document.querySelectorAll(".range-btn[data-samples]");
 
     const sensorElements = {
         ax: document.getElementById("ax"),
@@ -50,11 +143,501 @@ document.addEventListener("DOMContentLoaded", () => {
         gz: "GZ (Gyro Z)"
     };
 
-    /**
-     * Update Status Banner & Visuals
-     */
-    function updateStatusDisplay(status, connected, error, exceededCount) {
-        // Remove old status classes
+    const FEATURE_DESCRIPTIONS = {
+        ax: "X-Axis Linear Acceleration (Forward/Back)",
+        ay: "Y-Axis Linear Acceleration (Lateral/Side)",
+        az: "Z-Axis Linear Acceleration (Vertical/Gravity)",
+        gx: "X-Axis Angular Velocity (Roll Rate)",
+        gy: "Y-Axis Angular Velocity (Pitch Rate)",
+        gz: "Z-Axis Angular Velocity (Yaw Rate)"
+    };
+
+    const FEATURE_UNITS = {
+        ax: "m/s²",
+        ay: "m/s²",
+        az: "m/s²",
+        gx: "°/s",
+        gy: "°/s",
+        gz: "°/s"
+    };
+
+    // -------------------------------------------------------------------------
+    // 4. Theme Toggle & Persistence
+    // -------------------------------------------------------------------------
+    let currentTheme = localStorage.getItem("edgesentinel_theme") || "light";
+
+    function applyTheme(theme) {
+        currentTheme = theme;
+        document.documentElement.setAttribute("data-theme", theme);
+        localStorage.setItem("edgesentinel_theme", theme);
+
+        if (theme === "dark") {
+            if (themeToggleIcon) themeToggleIcon.textContent = "🌙";
+            if (themeToggleText) themeToggleText.textContent = "Dark";
+            if (themeToggleBtn) themeToggleBtn.setAttribute("aria-label", "Switch to light theme");
+        } else {
+            if (themeToggleIcon) themeToggleIcon.textContent = "☀️";
+            if (themeToggleText) themeToggleText.textContent = "Light";
+            if (themeToggleBtn) themeToggleBtn.setAttribute("aria-label", "Switch to dark theme");
+        }
+
+        updateChartTheme();
+    }
+
+    if (themeToggleBtn) {
+        themeToggleBtn.addEventListener("click", () => {
+            const nextTheme = currentTheme === "dark" ? "light" : "dark";
+            applyTheme(nextTheme);
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Navigation Views
+    // -------------------------------------------------------------------------
+    const VIEW_CONFIGS = {
+        overview: {
+            eyebrow: "EDGE MONITORING / OVERVIEW",
+            title: "Live Industrial Analytics",
+            subtitle: "Real-time edge sensor telemetry, statistical baseline tracking, and ML anomaly detection"
+        },
+        analytics: {
+            eyebrow: "EDGE MONITORING / SENSOR ANALYTICS",
+            title: "Sensor Waveform & Feature Analytics",
+            subtitle: "Detailed 6-axis inertial telemetry, rolling statistics, and 99% quantile baseline limits"
+        },
+        ai: {
+            eyebrow: "EDGE MONITORING / AI ANOMALY DETECTION",
+            title: "AI Anomaly Analysis & Model Inference",
+            subtitle: "Unsupervised Isolation Forest evaluations, decision boundaries, and physical inspection rules"
+        },
+        history: {
+            eyebrow: "EDGE MONITORING / EVENT HISTORY",
+            title: "Alerts & Event History Log",
+            subtitle: "Comprehensive log of operational state transitions, movement flags, and verified events"
+        },
+        diagnostics: {
+            eyebrow: "EDGE MONITORING / DEVICE DIAGNOSTICS",
+            title: "Hardware Link & System Diagnostics",
+            subtitle: "Microcontroller serial link status, I2C telemetry health, and host system resource utilization"
+        }
+    };
+
+    let currentView = "overview";
+
+    function switchView(viewName) {
+        if (!VIEW_CONFIGS[viewName]) return;
+        currentView = viewName;
+
+        navItems.forEach(item => {
+            if (item.getAttribute("data-view") === viewName) {
+                item.classList.add("active");
+            } else {
+                item.classList.remove("active");
+            }
+        });
+
+        if (mainContent) {
+            mainContent.setAttribute("data-view", viewName);
+        }
+
+        const cfg = VIEW_CONFIGS[viewName];
+        if (viewEyebrow) viewEyebrow.textContent = cfg.eyebrow;
+        if (viewTitle) viewTitle.textContent = cfg.title;
+        if (viewSubtitle) viewSubtitle.textContent = cfg.subtitle;
+
+        // Trigger chart resize if charts become visible
+        if (viewName === "overview" || viewName === "analytics") {
+            setTimeout(() => {
+                if (accelChart) accelChart.resize();
+                if (gyroChart) gyroChart.resize();
+            }, 50);
+        }
+    }
+
+    navItems.forEach(item => {
+        item.addEventListener("click", () => {
+            const targetView = item.getAttribute("data-view");
+            switchView(targetView);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // 6. Chart.js Time-Series Setup
+    // -------------------------------------------------------------------------
+    function getChartThemeColors() {
+        const isDark = currentTheme === "dark";
+        return {
+            grid: isDark ? "#39414B" : "#E2E8F0",
+            text: isDark ? "#A7B0BD" : "#64748B",
+            tooltipBg: isDark ? "#22272E" : "#172B24",
+            tooltipText: isDark ? "#F1F5F9" : "#FFFFFF",
+            border: isDark ? "#39414B" : "#CBD5E1"
+        };
+    }
+
+    function initCharts() {
+        if (typeof Chart === "undefined") {
+            return;
+        }
+
+        const colors = getChartThemeColors();
+
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: {
+                mode: "index",
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: "top",
+                    labels: {
+                        color: colors.text,
+                        font: { size: 11, family: "Inter" },
+                        boxWidth: 12,
+                        padding: 12
+                    }
+                },
+                tooltip: {
+                    backgroundColor: colors.tooltipBg,
+                    titleColor: colors.tooltipText,
+                    bodyColor: colors.tooltipText,
+                    borderColor: colors.border,
+                    borderWidth: 1,
+                    padding: 8,
+                    bodyFont: { family: "JetBrains Mono", size: 11 }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: colors.grid, drawBorder: false },
+                    ticks: {
+                        color: colors.text,
+                        font: { size: 10, family: "JetBrains Mono" },
+                        maxRotation: 0,
+                        autoSkip: true,
+                        maxTicksLimit: 6
+                    }
+                },
+                y: {
+                    grid: { color: colors.grid, drawBorder: false },
+                    ticks: {
+                        color: colors.text,
+                        font: { size: 10, family: "JetBrains Mono" }
+                    }
+                }
+            }
+        };
+
+        // 1. Accelerometer Chart
+        const accelCtx = document.getElementById("accelChart");
+        if (accelCtx && !accelChart) {
+            accelChart = new Chart(accelCtx.getContext("2d"), {
+                type: "line",
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: "AX (X-Axis)",
+                            borderColor: "#26734D",
+                            backgroundColor: "rgba(38, 115, 77, 0.1)",
+                            borderWidth: 1.75,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            tension: 0.15,
+                            data: []
+                        },
+                        {
+                            label: "AY (Y-Axis)",
+                            borderColor: "#3B82F6",
+                            backgroundColor: "rgba(59, 130, 246, 0.1)",
+                            borderWidth: 1.75,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            tension: 0.15,
+                            data: []
+                        },
+                        {
+                            label: "AZ (Z-Axis)",
+                            borderColor: "#F59E0B",
+                            backgroundColor: "rgba(245, 158, 11, 0.1)",
+                            borderWidth: 1.75,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            tension: 0.15,
+                            data: []
+                        }
+                    ]
+                },
+                options: commonOptions
+            });
+        }
+
+        // 2. Gyroscope Chart
+        const gyroCtx = document.getElementById("gyroChart");
+        if (gyroCtx && !gyroChart) {
+            gyroChart = new Chart(gyroCtx.getContext("2d"), {
+                type: "line",
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: "GX (Roll Rate)",
+                            borderColor: "#8B5CF6",
+                            backgroundColor: "rgba(139, 92, 246, 0.1)",
+                            borderWidth: 1.75,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            tension: 0.15,
+                            data: []
+                        },
+                        {
+                            label: "GY (Pitch Rate)",
+                            borderColor: "#EC4899",
+                            backgroundColor: "rgba(236, 72, 153, 0.1)",
+                            borderWidth: 1.75,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            tension: 0.15,
+                            data: []
+                        },
+                        {
+                            label: "GZ (Yaw Rate)",
+                            borderColor: "#06B6D4",
+                            backgroundColor: "rgba(6, 182, 212, 0.1)",
+                            borderWidth: 1.75,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            tension: 0.15,
+                            data: []
+                        }
+                    ]
+                },
+                options: commonOptions
+            });
+        }
+    }
+
+    function updateChartTheme() {
+        if (!accelChart && !gyroChart) return;
+        const colors = getChartThemeColors();
+
+        [accelChart, gyroChart].forEach(chart => {
+            if (!chart) return;
+            chart.options.scales.x.grid.color = colors.grid;
+            chart.options.scales.x.ticks.color = colors.text;
+            chart.options.scales.y.grid.color = colors.grid;
+            chart.options.scales.y.ticks.color = colors.text;
+            chart.options.plugins.legend.labels.color = colors.text;
+            chart.options.plugins.tooltip.backgroundColor = colors.tooltipBg;
+            chart.options.plugins.tooltip.titleColor = colors.tooltipText;
+            chart.options.plugins.tooltip.bodyColor = colors.tooltipText;
+            chart.options.plugins.tooltip.borderColor = colors.border;
+            chart.update();
+        });
+    }
+
+    // Safely apply initial theme now that updateChartTheme is safe
+    applyTheme(currentTheme);
+
+    // Time-range selector buttons
+    rangeBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            rangeBtns.forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            maxVisibleSamples = parseInt(btn.getAttribute("data-samples"), 10) || 30;
+            renderCharts();
+        });
+    });
+
+    function addReadingToBuffer(reading) {
+        if (!reading || reading.ax === undefined) return;
+        historyBuffer.push(reading);
+        if (historyBuffer.length > MAX_BUFFER) {
+            historyBuffer.shift();
+        }
+        renderCharts();
+    }
+
+    function renderCharts() {
+        if (!accelChart || !gyroChart) return;
+
+        const sliceStart = Math.max(0, historyBuffer.length - maxVisibleSamples);
+        const visibleSlice = historyBuffer.slice(sliceStart);
+
+        const labels = visibleSlice.map(r => r.time || "");
+
+        // Accelerometer
+        accelChart.data.labels = labels;
+        accelChart.data.datasets[0].data = visibleSlice.map(r => r.ax);
+        accelChart.data.datasets[1].data = visibleSlice.map(r => r.ay);
+        accelChart.data.datasets[2].data = visibleSlice.map(r => r.az);
+        accelChart.update();
+
+        // Gyroscope
+        gyroChart.data.labels = labels;
+        gyroChart.data.datasets[0].data = visibleSlice.map(r => r.gx);
+        gyroChart.data.datasets[1].data = visibleSlice.map(r => r.gy);
+        gyroChart.data.datasets[2].data = visibleSlice.map(r => r.gz);
+        gyroChart.update();
+
+        // Empty state overlay handling
+        if (visibleSlice.length > 0) {
+            if (accelChartEmpty) accelChartEmpty.classList.add("hidden");
+            if (gyroChartEmpty) gyroChartEmpty.classList.add("hidden");
+        } else {
+            if (accelChartEmpty) accelChartEmpty.classList.remove("hidden");
+            if (gyroChartEmpty) gyroChartEmpty.classList.remove("hidden");
+        }
+    }
+
+    initCharts();
+
+    // -------------------------------------------------------------------------
+    // 7. Browser Notifications
+    // -------------------------------------------------------------------------
+    function updateNotificationButtonUI() {
+        if (!notificationBtn) return;
+        notificationBtn.classList.remove("granted", "denied", "unsupported");
+
+        if (!("Notification" in window)) {
+            notificationBtn.classList.add("unsupported");
+            notificationBtn.title = "Browser notifications are not supported in this browser";
+            notificationBtn.disabled = true;
+            if (notificationBtnText) notificationBtnText.textContent = "Alerts Unsupported";
+            if (notificationIcon) notificationIcon.textContent = "🔕";
+            return;
+        }
+
+        const perm = Notification.permission;
+        if (perm === "granted") {
+            notificationBtn.classList.add("granted");
+            notificationBtn.title = "Browser notifications active: alerting once on confirmed anomaly events";
+            if (notificationBtnText) notificationBtnText.textContent = "Alerts Active";
+            if (notificationIcon) notificationIcon.textContent = "🔔";
+        } else if (perm === "denied") {
+            notificationBtn.classList.add("denied");
+            notificationBtn.title = "Notifications blocked in browser settings. Please allow in site permissions.";
+            if (notificationBtnText) notificationBtnText.textContent = "Alerts Blocked";
+            if (notificationIcon) notificationIcon.textContent = "🔕";
+        } else {
+            notificationBtn.title = "Click to enable browser notifications for anomaly alerts";
+            if (notificationBtnText) notificationBtnText.textContent = "Enable Alerts";
+            if (notificationIcon) notificationIcon.textContent = "🔔";
+        }
+    }
+
+    updateNotificationButtonUI();
+
+    if (notificationBtn) {
+        notificationBtn.addEventListener("click", async () => {
+            if (!("Notification" in window)) {
+                alert("Browser notifications are not supported by this browser.");
+                return;
+            }
+
+            if (Notification.permission === "granted") {
+                try {
+                    const testNotif = new Notification("EdgeSentinel Alerts Active", {
+                        body: "Browser alerts are currently enabled. You will be notified whenever equipment movement is confirmed.",
+                        tag: "edgesentinel-active"
+                    });
+                    setTimeout(() => { try { testNotif.close(); } catch (e) {} }, 4000);
+                } catch (e) {}
+                return;
+            }
+
+            if (Notification.permission === "denied") {
+                alert("Notifications are blocked in your browser settings. Please grant notification permission in site settings to receive anomaly alerts.");
+                return;
+            }
+
+            try {
+                let perm;
+                if (window.Notification && Notification.requestPermission) {
+                    perm = await new Promise(resolve => {
+                        const res = Notification.requestPermission(resolve);
+                        if (res && typeof res.then === "function") {
+                            res.then(resolve);
+                        }
+                    });
+                }
+                updateNotificationButtonUI();
+            } catch (err) {
+                console.warn("Notification request error:", err);
+            }
+        });
+    }
+
+    function sendAnomalyNotification(data, eventObj) {
+        if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+        const exceeded = (eventObj && eventObj.features_exceeded !== undefined)
+            ? eventObj.features_exceeded
+            : (data.features_exceeded || 0);
+
+        const timeStr = (eventObj && eventObj.time) || data.timestamp || new Date().toTimeString().split(" ")[0];
+        const title = "⚠️ EdgeSentinel: ANOMALY CONFIRMED";
+        const body = `Unusual sensor variation detected at ${timeStr} (${exceeded}/6 features exceeded). Equipment inspection recommended.`;
+
+        try {
+            const notif = new Notification(title, {
+                body: body,
+                tag: `edgesentinel-anomaly-${Date.now()}`,
+                renotify: true
+            });
+            setTimeout(() => { try { notif.close(); } catch (e) {} }, 8000);
+            notif.onclick = () => {
+                window.focus();
+                try { notif.close(); } catch (e) {}
+            };
+        } catch (e) {}
+    }
+
+    function checkAnomalyNotification(data) {
+        const currentStatus = (data.status || "").toUpperCase();
+        const isAnomaly = currentStatus === "ANOMALY CONFIRMED";
+
+        let latestAnomalyEvent = null;
+        if (Array.isArray(data.events)) {
+            latestAnomalyEvent = data.events.find(ev => (ev.status || "").toUpperCase() === "ANOMALY CONFIRMED");
+        }
+
+        const currentAnomalyKey = latestAnomalyEvent
+            ? `${latestAnomalyEvent.time}_${latestAnomalyEvent.features_exceeded}`
+            : (isAnomaly ? `${data.timestamp || "active"}_${data.features_exceeded || 0}` : null);
+
+        if (isInitialPoll) {
+            isInitialPoll = false;
+            lastAnomalyStatus = currentStatus;
+            lastAnomalyKey = currentAnomalyKey;
+            return;
+        }
+
+        if (isAnomaly) {
+            const isNewTransition = lastAnomalyStatus !== "ANOMALY CONFIRMED";
+            const isNewKey = currentAnomalyKey && currentAnomalyKey !== lastAnomalyKey;
+
+            if (isNewTransition || isNewKey) {
+                sendAnomalyNotification(data, latestAnomalyEvent);
+                if (currentAnomalyKey) lastAnomalyKey = currentAnomalyKey;
+            }
+        }
+
+        lastAnomalyStatus = currentStatus;
+    }
+
+    // -------------------------------------------------------------------------
+    // 8. Update Status Display & Visuals (Uses data.connected and data.port)
+    // -------------------------------------------------------------------------
+    function updateStatusDisplay(status, connected, error, exceededCount, timestamp, port, baudRate) {
+        // Derive active hardware port and baud rate directly from the live API response
+        const activePort = port || "/dev/ttyACM0";
+        const activeBaud = baudRate || 115200;
+        const baudFormatted = Number(activeBaud).toLocaleString('en-US');
+
         statusBanner.classList.remove(
             "status-normal",
             "status-checking",
@@ -62,64 +645,109 @@ document.addEventListener("DOMContentLoaded", () => {
             "status-disconnected"
         );
 
-        if (!connected || status === "DISCONNECTED") {
+        const rawStatus = (status || "").toUpperCase();
+        const isActuallyConnected = Boolean(connected);
+
+        // 1. Connection indicators and hardware port displays
+        if (isActuallyConnected) {
+            // Header connectivity badge
+            if (headerDot) headerDot.className = "pill-dot connected";
+            if (headerConnText) headerConnText.textContent = `${activePort}: Online`;
+
+            // Sidebar indicators (supports sidebarDot, connectionDot, sidebarConnectionText, connectionText)
+            if (sidebarDot) sidebarDot.className = "connection-indicator connected";
+            if (sidebarConnectionText) sidebarConnectionText.textContent = "Connected";
+            if (sidebarPortInfo) sidebarPortInfo.textContent = `Arduino · ${activePort} (${baudFormatted})`;
+
+            // KPI Card - Hardware Interface
+            if (kpiConnectionStatus) kpiConnectionStatus.textContent = "Connected";
+            if (kpiPortBadge) {
+                kpiPortBadge.className = "kpi-badge success";
+                kpiPortBadge.textContent = activePort;
+            }
+            if (kpiBaudSubtext) {
+                kpiBaudSubtext.textContent = `${baudFormatted} baud · MPU-6050`;
+            }
+        } else {
+            // Disconnected link
+            if (headerDot) headerDot.className = "pill-dot disconnected";
+            if (headerConnText) headerConnText.textContent = `${activePort}: Disconnected`;
+
+            if (sidebarDot) sidebarDot.className = "connection-indicator disconnected";
+            if (sidebarConnectionText) sidebarConnectionText.textContent = "Disconnected";
+            if (sidebarPortInfo) sidebarPortInfo.textContent = `Arduino · ${activePort} (${baudFormatted})`;
+
+            if (kpiConnectionStatus) kpiConnectionStatus.textContent = "Disconnected";
+            if (kpiPortBadge) {
+                kpiPortBadge.className = "kpi-badge critical";
+                kpiPortBadge.textContent = "OFFLINE";
+            }
+            if (kpiBaudSubtext) {
+                kpiBaudSubtext.textContent = `${baudFormatted} baud · MPU-6050`;
+            }
+        }
+
+        // 2. Operational state banner and detector logic
+        if (!isActuallyConnected || rawStatus === "DISCONNECTED") {
             statusBanner.classList.add("status-disconnected");
             statusSymbol.textContent = "✕";
             systemStatus.textContent = "DISCONNECTED";
             statusDescription.textContent = error
                 ? error
-                : "Waiting for Arduino Uno connection on COM13...";
+                : `Waiting for Arduino Uno connection on ${activePort}...`;
 
-            if (connectionDot) {
-                connectionDot.className = "connection-indicator disconnected";
+            if (kpiStateValue) kpiStateValue.textContent = "DISCONNECTED";
+            if (kpiStateBadge) {
+                kpiStateBadge.className = "kpi-badge neutral";
+                kpiStateBadge.textContent = "STANDBY";
             }
-            if (connectionText) {
-                connectionText.textContent = "Disconnected";
-            }
-        } else if (status === "ANOMALY CONFIRMED") {
+
+        } else if (rawStatus === "ANOMALY CONFIRMED") {
             statusBanner.classList.add("status-anomaly");
             statusSymbol.textContent = "▲";
             systemStatus.textContent = "ANOMALY CONFIRMED";
-            statusDescription.textContent = "Unusual sensor variation detected across consecutive 100-sample windows.";
+            statusDescription.textContent = "Unusual sensor variability detected across consecutive 100-sample windows. Physical movement verified.";
 
-            if (connectionDot) {
-                connectionDot.className = "connection-indicator connected";
+            if (kpiStateValue) kpiStateValue.textContent = "ANOMALY CONFIRMED";
+            if (kpiStateBadge) {
+                kpiStateBadge.className = "kpi-badge critical";
+                kpiStateBadge.textContent = "CRITICAL";
             }
-            if (connectionText) {
-                connectionText.textContent = "Connected";
-            }
-        } else if (status === "CHECKING MOVEMENT") {
+
+        } else if (rawStatus === "CHECKING MOVEMENT") {
             statusBanner.classList.add("status-checking");
             statusSymbol.textContent = "⚠";
             systemStatus.textContent = "CHECKING MOVEMENT";
-            statusDescription.textContent = "Variation exceeded threshold on this window. Evaluating consecutive window...";
+            statusDescription.textContent = "Variability exceeded 99% baseline limit on current window. Verifying consecutive window confirmation...";
 
-            if (connectionDot) {
-                connectionDot.className = "connection-indicator connected";
+            if (kpiStateValue) kpiStateValue.textContent = "CHECKING";
+            if (kpiStateBadge) {
+                kpiStateBadge.className = "kpi-badge warning";
+                kpiStateBadge.textContent = "EVALUATING";
             }
-            if (connectionText) {
-                connectionText.textContent = "Connected";
-            }
+
         } else {
-            // NORMAL
+            // NORMAL, CONNECTING, or other operating state
             statusBanner.classList.add("status-normal");
             statusSymbol.textContent = "✓";
-            systemStatus.textContent = "NORMAL";
-            statusDescription.textContent = "Sensor baseline variability within expected operating limits.";
+            systemStatus.textContent = (rawStatus === "CONNECTING") ? "CONNECTING" : "NORMAL";
+            statusDescription.textContent = (rawStatus === "CONNECTING")
+                ? `Initializing sensor buffer on ${activePort}...`
+                : "Sensor baseline variability within expected operating limits. Machine stationary.";
 
-            if (connectionDot) {
-                connectionDot.className = "connection-indicator connected";
-            }
-            if (connectionText) {
-                connectionText.textContent = "Connected";
+            if (kpiStateValue) kpiStateValue.textContent = (rawStatus === "CONNECTING") ? "CONNECTING" : "NORMAL";
+            if (kpiStateBadge) {
+                kpiStateBadge.className = "kpi-badge success";
+                kpiStateBadge.textContent = "STABLE";
             }
         }
 
-        if (featuresExceeded) {
-            featuresExceeded.textContent = `${exceededCount !== undefined ? exceededCount : 0} / 6`;
-        }
+        const count = exceededCount !== undefined ? exceededCount : 0;
+        if (featuresExceeded) featuresExceeded.textContent = `${count} / 6`;
+        if (kpiExceededValue) kpiExceededValue.textContent = `${count} / 6`;
+        if (lastReadingTime) lastReadingTime.textContent = timestamp || "--:--:--";
 
-        // Connection error alert banner
+        // Hardware error banner
         if (error && error.trim().length > 0) {
             errorBanner.style.display = "flex";
             errorMessage.textContent = error;
@@ -129,9 +757,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    /**
-     * Update Live Sensor Readings
-     */
     function updateReadings(readings, connected) {
         FEATURE_NAMES.forEach(feat => {
             const el = sensorElements[feat];
@@ -141,15 +766,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 const val = Number(readings[feat]);
                 el.textContent = isNaN(val) ? "--" : val.toFixed(4);
             } else {
-                // Never fabricate sensor values when disconnected
                 el.textContent = "--";
             }
         });
     }
 
-    /**
-     * Render the 6-Feature Variability Indicator
-     */
     function updateFeatureMeter(thresholds, variability, featureExceeded, connected) {
         if (!featureMeter) return;
 
@@ -172,7 +793,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 } else {
                     statusClass = "normal";
                     statusText = "NORMAL";
-                    percentFill = Math.min(100, Math.max(5, (variance / (threshold || 1)) * 100));
+                    percentFill = Math.min(100, Math.max(4, (variance / (threshold || 1)) * 100));
                 }
             }
 
@@ -199,19 +820,174 @@ document.addEventListener("DOMContentLoaded", () => {
         featureMeter.innerHTML = html;
     }
 
-    /**
-     * Render Recent Events History
-     */
-    function updateEventList(events) {
+    function updateAnalyticsTable(readings, rollingMean, thresholds, variability, featureExceeded, connected) {
+        if (!analyticsTableBody) return;
+
+        let rowsHtml = "";
+        FEATURE_NAMES.forEach(feat => {
+            const code = feat.toUpperCase();
+            const desc = FEATURE_DESCRIPTIONS[feat] || feat;
+            const unit = FEATURE_UNITS[feat] || "";
+
+            const readingVal = (connected && readings && readings[feat] !== undefined && readings[feat] !== null)
+                ? Number(readings[feat]).toFixed(4) + " " + unit
+                : "--";
+
+            const meanVal = (connected && rollingMean && rollingMean[feat] !== undefined && rollingMean[feat] !== null)
+                ? Number(rollingMean[feat]).toFixed(4)
+                : "--";
+
+            const varianceVal = (connected && variability && variability[feat] !== undefined && variability[feat] !== null)
+                ? Number(variability[feat]).toFixed(4)
+                : "--";
+
+            const thresholdVal = (thresholds && thresholds[feat] !== undefined && thresholds[feat] !== null)
+                ? Number(thresholds[feat]).toFixed(4)
+                : "--";
+
+            const isExceeded = featureExceeded && featureExceeded[feat] === true;
+
+            let ratioPct = 0;
+            let ratioText = "--";
+            if (connected && variability && thresholds && variability[feat] !== undefined && thresholds[feat]) {
+                const ratio = (variability[feat] / thresholds[feat]) * 100;
+                ratioPct = Math.min(100, Math.max(0, ratio));
+                ratioText = ratio.toFixed(1) + "%";
+            }
+
+            const statusBadge = !connected
+                ? `<span class="meter-status awaiting">OFFLINE</span>`
+                : (isExceeded
+                    ? `<span class="meter-status high">EXCEEDED</span>`
+                    : `<span class="meter-status normal">NORMAL</span>`);
+
+            rowsHtml += `
+                <tr>
+                    <td><span class="feature-code">${code}</span></td>
+                    <td>${desc}</td>
+                    <td class="num-val">${readingVal}</td>
+                    <td class="num-val">${meanVal}</td>
+                    <td class="num-val">${varianceVal}</td>
+                    <td class="num-val">${thresholdVal}</td>
+                    <td>
+                        <div class="ratio-cell">
+                            <div class="ratio-bar">
+                                <div class="ratio-fill ${isExceeded ? 'exceeded' : ''}" style="width: ${ratioPct}%;"></div>
+                            </div>
+                            <span>${ratioText}</span>
+                        </div>
+                    </td>
+                    <td>${statusBadge}</td>
+                </tr>
+            `;
+        });
+
+        analyticsTableBody.innerHTML = rowsHtml;
+    }
+
+    function updateAiPanel(data) {
+        if (!data) return;
+
+        if (data.model_loaded) {
+            if (kpiModelStatus) kpiModelStatus.textContent = "Active";
+            if (kpiModelBadge) { kpiModelBadge.className = "kpi-badge success"; kpiModelBadge.textContent = "READY"; }
+            if (aiModelBadge) { aiModelBadge.className = "badge success"; aiModelBadge.textContent = "ISOLATION FOREST ACTIVE"; }
+        } else {
+            if (kpiModelStatus) kpiModelStatus.textContent = "Standby";
+            if (kpiModelBadge) { kpiModelBadge.className = "kpi-badge neutral"; kpiModelBadge.textContent = "UNLOADED"; }
+            if (aiModelBadge) { aiModelBadge.className = "badge neutral"; aiModelBadge.textContent = "STANDBY"; }
+        }
+
+        if (data.anomaly_score !== null && data.anomaly_score !== undefined) {
+            const score = Number(data.anomaly_score);
+            if (kpiAnomalyScore) kpiAnomalyScore.textContent = score.toFixed(4);
+            if (aiDecisionScore) aiDecisionScore.textContent = (score >= 0 ? "+" : "") + score.toFixed(4);
+
+            // Needle positioning: map score [-0.5, +0.5] to [0%, 100%]
+            const clamped = Math.max(-0.5, Math.min(0.5, score));
+            const pct = ((clamped + 0.5) / 1.0) * 100;
+            if (aiScoreNeedle) aiScoreNeedle.style.left = `${pct}%`;
+
+            if (score < 0) {
+                if (aiScoreInterp) aiScoreInterp.textContent = `Negative score (${score.toFixed(4)}) indicates outlier / anomaly pattern`;
+                if (kpiScoreSubtext) kpiScoreSubtext.textContent = "Outlier detected (< 0.0)";
+            } else {
+                if (aiScoreInterp) aiScoreInterp.textContent = `Positive score (+${score.toFixed(4)}) indicates inlier matching clean baseline`;
+                if (kpiScoreSubtext) kpiScoreSubtext.textContent = "Inlier within baseline (> 0.0)";
+            }
+        } else {
+            if (kpiAnomalyScore) kpiAnomalyScore.textContent = "--";
+            if (aiDecisionScore) aiDecisionScore.textContent = "--";
+            if (aiScoreInterp) aiScoreInterp.textContent = "Score calculated dynamically on 100-sample window inference";
+        }
+
+        if (aiLastInference) {
+            aiLastInference.textContent = data.last_inference_time || (data.connected ? "Continuous" : "--:--:--");
+        }
+
+        if (aiModelVerdict) {
+            const v = data.model_prediction || "NORMAL";
+            aiModelVerdict.textContent = v;
+            aiModelVerdict.style.color = v === "ANOMALY" ? "var(--status-critical)" : "var(--status-success)";
+        }
+
+        const exceeded = data.features_exceeded || 0;
+        if (ruleFeaturesStatus) {
+            ruleFeaturesStatus.textContent = `Current: ${exceeded} / 6 features exceeding 99% baseline threshold.`;
+        }
+        if (ruleFeaturesDot) {
+            ruleFeaturesDot.style.color = exceeded >= 3 ? "var(--status-critical)" : "var(--status-success)";
+        }
+        if (ruleConsecutiveDot) {
+            const rawStatus = (data.status || "").toUpperCase();
+            ruleConsecutiveDot.style.color = (rawStatus === "ANOMALY CONFIRMED")
+                ? "var(--status-critical)"
+                : (rawStatus === "CHECKING MOVEMENT" ? "var(--status-warning)" : "var(--status-success)");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 9. Event History & Filtering
+    // -------------------------------------------------------------------------
+    filterBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            filterBtns.forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            currentFilter = btn.getAttribute("data-filter") || "all";
+            renderEventList();
+        });
+    });
+
+    if (eventSearchInput) {
+        eventSearchInput.addEventListener("input", (e) => {
+            searchQuery = e.target.value.toLowerCase().trim();
+            renderEventList();
+        });
+    }
+
+    function renderEventList() {
         if (!eventList) return;
 
-        if (!events || events.length === 0) {
-            eventList.innerHTML = `<p class="empty-state">Waiting for the first event...</p>`;
+        let filtered = cachedEvents.filter(ev => {
+            const st = (ev.status || "").toUpperCase();
+            if (currentFilter === "anomaly" && !st.includes("ANOMALY")) return false;
+            if (currentFilter === "checking" && !st.includes("CHECKING")) return false;
+            if (currentFilter === "normal" && !st.includes("NORMAL")) return false;
+
+            if (searchQuery) {
+                const combined = `${ev.time} ${ev.status} ${ev.features_exceeded}`.toLowerCase();
+                if (!combined.includes(searchQuery)) return false;
+            }
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            eventList.innerHTML = `<p class="empty-state">No matching events logged.</p>`;
             return;
         }
 
         let html = "";
-        events.forEach(ev => {
+        filtered.forEach(ev => {
             let statusClass = "status-normal";
             const rawStatus = (ev.status || "").toUpperCase();
 
@@ -227,7 +1003,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="event-item">
                     <span class="event-time">${ev.time || "--:--:--"}</span>
                     <span class="event-status ${statusClass}">${ev.status || "UNKNOWN"}</span>
-                    <span class="event-features">${ev.features_exceeded !== undefined ? ev.features_exceeded : 0}/6 exceeded</span>
+                    <span class="event-features">${ev.features_exceeded !== undefined ? ev.features_exceeded : 0}/6 features exceeded</span>
                 </div>
             `;
         });
@@ -235,30 +1011,106 @@ document.addEventListener("DOMContentLoaded", () => {
         eventList.innerHTML = html;
     }
 
-    /**
-     * Fetch status from /api/status (Approximately 1/sec)
-     */
+    function updateHistoryStats(events) {
+        if (!events) return;
+        cachedEvents = events;
+
+        const total = events.length;
+        let anomalyCount = 0;
+        let checkingCount = 0;
+        let normalCount = 0;
+
+        events.forEach(ev => {
+            const st = (ev.status || "").toUpperCase();
+            if (st.includes("ANOMALY")) anomalyCount++;
+            else if (st.includes("CHECKING")) checkingCount++;
+            else if (st.includes("NORMAL")) normalCount++;
+        });
+
+        if (statTotalEvents) statTotalEvents.textContent = total.toLocaleString();
+        if (statAnomalyCount) statAnomalyCount.textContent = anomalyCount.toLocaleString();
+        if (statCheckingCount) statCheckingCount.textContent = checkingCount.toLocaleString();
+        if (statNormalCount) statNormalCount.textContent = normalCount.toLocaleString();
+
+        renderEventList();
+    }
+
+    function updateDiagnostics(data) {
+        const diag = data.diagnostics || {};
+        const activePort = data.port || "/dev/ttyACM0";
+        const activeBaud = data.baud_rate || 115200;
+
+        if (diagPort) diagPort.textContent = `${activePort} @ ${activeBaud} baud`;
+        if (diagLinkState) {
+            diagLinkState.textContent = data.connected ? "Connected (Stable I2C Telemetry)" : "Disconnected (Searching port)";
+            diagLinkState.style.color = data.connected ? "var(--status-success)" : "var(--status-critical)";
+        }
+        if (diagFreshness) {
+            diagFreshness.textContent = data.connected ? "LIVE (Active Stream)" : "OFFLINE";
+            diagFreshness.style.color = data.connected ? "var(--status-success)" : "var(--status-critical)";
+        }
+
+        if (diagCpu) {
+            diagCpu.textContent = (diag.cpu_percent !== null && diag.cpu_percent !== undefined)
+                ? `${diag.cpu_percent.toFixed(1)}%`
+                : "Available on host";
+        }
+        if (diagMem) {
+            diagMem.textContent = (diag.memory_percent !== null && diag.memory_percent !== undefined)
+                ? `${diag.memory_percent.toFixed(1)}%`
+                : "Available on host";
+        }
+        if (diagProcMem) {
+            diagProcMem.textContent = (diag.process_memory_mb !== null && diag.process_memory_mb !== undefined)
+                ? `${diag.process_memory_mb} MB`
+                : "-- MB";
+        }
+        if (diagUptime && diag.server_uptime_seconds !== undefined) {
+            const sec = diag.server_uptime_seconds;
+            const m = Math.floor(sec / 60);
+            const s = sec % 60;
+            diagUptime.textContent = `${m}m ${s}s`;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 10. Periodic Polling from /api/status (Every 1000ms)
+    // -------------------------------------------------------------------------
     async function fetchStatus() {
         try {
             const response = await fetch("/api/status", { cache: "no-store" });
             if (!response.ok) {
-                throw new Error(`HTTP error ${response.status}`);
+                throw new Error(`HTTP ${response.status}`);
             }
 
             const data = await response.json();
 
-            // 1. Connection & Banner Status
+            // 1. Operational Status & Hardware Link Indicators (passes live data.connected and data.port)
             updateStatusDisplay(
                 data.status,
                 data.connected,
                 data.error,
-                data.features_exceeded
+                data.features_exceeded,
+                data.timestamp,
+                data.port,
+                data.baud_rate
             );
 
-            // 2. Telemetry Readings
+            // 2. Numerical Telemetry Cards
             updateReadings(data.readings, data.connected);
 
-            // 3. 6-Feature Variability Indicator
+            // 3. Add to Waveform History Buffer
+            if (data.connected && data.readings && data.readings.ax !== undefined) {
+                addReadingToBuffer({
+                    time: data.timestamp || new Date().toTimeString().split(" ")[0],
+                    ...data.readings
+                });
+            } else if (Array.isArray(data.recent_readings) && historyBuffer.length === 0 && data.recent_readings.length > 0) {
+                data.recent_readings.forEach(r => historyBuffer.push(r));
+                renderCharts();
+            }
+
+            // 4. Feature Variability Progress Meters
             updateFeatureMeter(
                 data.thresholds,
                 data.variability,
@@ -266,15 +1118,34 @@ document.addEventListener("DOMContentLoaded", () => {
                 data.connected
             );
 
-            // 4. Recent Events
-            updateEventList(data.events);
+            // 5. In-depth Feature Matrix Table (gracefully handles undefined rolling_mean)
+            updateAnalyticsTable(
+                data.readings,
+                data.rolling_mean,
+                data.thresholds,
+                data.variability,
+                data.feature_exceeded,
+                data.connected
+            );
 
-            // 5. Samples Processed Count
+            // 6. AI Anomaly Analysis Panel
+            updateAiPanel(data);
+
+            // 7. Event History & Summary Stats
+            updateHistoryStats(data.events);
+
+            // 8. Device Diagnostics
+            updateDiagnostics(data);
+
+            // 9. Confirmed Anomaly Notifications
+            checkAnomalyNotification(data);
+
+            // 10. Samples Processed Count
             if (samplesProcessed) {
                 samplesProcessed.textContent = (data.samples_processed || 0).toLocaleString();
             }
 
-            // 6. Last Updated
+            // 11. Footer Update Timestamp
             if (lastUpdated) {
                 if (data.timestamp) {
                     lastUpdated.textContent = `Last sensor update: ${data.timestamp}`;
@@ -286,23 +1157,19 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
         } catch (err) {
-            // Web server unreachable or temporary fetch issue
-            if (connectionDot) {
-                connectionDot.className = "connection-indicator disconnected";
-            }
-            if (connectionText) {
-                connectionText.textContent = "Server Offline";
-            }
-            if (errorBanner) {
-                errorBanner.style.display = "flex";
-                if (errorMessage) {
-                    errorMessage.textContent = `Dashboard API communication error: ${err.message}. Retrying...`;
-                }
-            }
+            updateStatusDisplay(
+                "DISCONNECTED",
+                false,
+                `API communication error: ${err.message}`,
+                0,
+                null,
+                null,
+                null
+            );
         }
     }
 
-    // Initial fetch and poll every 1000ms
+    // Initial fetch & interval timer
     fetchStatus();
     setInterval(fetchStatus, 1000);
 });
